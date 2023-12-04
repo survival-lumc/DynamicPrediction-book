@@ -1,0 +1,10 @@
+# Errata {.unnumbered #sec-errata}
+
+## Chapter 2
+
+-   (If any)
+
+## Chapter 3
+
+-   etc.
+

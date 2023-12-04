@@ -63,6 +63,6 @@ format:
     toc-depth: 5
     theme:
       - cosmo
-      - msb.scss
+      - dynpredb.scss
 editor: source
 number-sections: true
