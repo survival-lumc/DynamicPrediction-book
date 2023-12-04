@@ -1,1 +1,1 @@
-This repository contains the source for the book..
+This repository contains the source for the book (**work in progress**).
