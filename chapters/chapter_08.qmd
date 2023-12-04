@@ -1,0 +1,316 @@
+---
+execute:
+  eval: false
+---
+
+# Dynamic predictions using biomarkers
+
+This file contains R code for the analyses in Chapter 8 of the book Dynamic Prediction in Clinical Survival Analysis (CRC Chapman & Hall) by Hans C. van Houwelingen and Hein Putter
+
+R code written by Hein Putter (H.Putter@lumc.nl for comments/questions)
+The dynpred package is available from CRAN
+
+Consistency with the book has been checked with
+- R version 2.14.0
+- survival version 2.36-10
+- dynpred version 0.1.1
+
+
+```{r}
+#| label: figbla
+
+library(dynpred)
+data(wbc1)
+data(wbc2)
+wbc <- merge(wbc1,wbc2,by="patnr")
+names(wbc)[c(2,6)] <- c("survtime","wbctime")
+
+###############################################################################
+###############################################################################
+### Table 8.1: Number of WBC measurements by year
+###############################################################################
+###############################################################################
+
+wbc$year <- as.numeric(cut(wbc$wbctime,0:9))
+for (i in 1:8) {
+    wbcyeari <- wbc[wbc$year==i,]
+    ni <- length(unique(wbcyeari$patnr))
+    meani <- nrow(wbcyeari)/ni
+    print(data.frame(ni=ni,meani=round(meani,2)))
+}
+
+###############################################################################
+###############################################################################
+### Figure 8.3: LWBC trajectories of all patients in the Benelux CML data
+###############################################################################
+###############################################################################
+
+require(lattice)
+require(colorspace)
+cols <- c(sequential_hcl(63),
+  terrain_hcl(63, c = c(65, 0), l = c(45, 95), power = c(1/3, 1.5)),
+  heat_hcl(64, c = c(80, 30), l = c(30, 90), power = c(1/5, 1.5)))
+
+xyplot(lwbc ~ wbctime, group = patnr, data = wbc,
+  xlab = "Time (years)", ylab = "WBC (transformed)", col = cols, type = "l")
+
+### Prepare data for time-dependent Cox regression
+
+## Overall survival
+wbcos <- NULL
+n <- length(unique(wbc$patnr))
+for (i in 1:n) {
+  wbci <- wbc[wbc$patnr==i,]
+  ni <- nrow(wbci)
+  wbci$Tstart <- wbci$wbctime
+  wbci$Tstop <- c(wbci$Tstart[-1],wbci$survtime[1])
+  wbci$status <- c(rep(0,nrow(wbci)-1),wbci$d[1])
+  wbci$TEL <- 0
+  wbci$TEL[ni] <- wbci$Tstop[ni] - wbci$Tstart[ni]
+  wbcos <- rbind(wbcos,wbci)
+}
+
+## Failure-free survival
+wbcffs <- NULL
+n <- length(unique(wbc$patnr))
+for (i in 1:n) {
+  wbci <- wbc[wbc$patnr==i,]
+  ni <- nrow(wbci)
+  wbci$Tstart <- wbci$wbctime
+  Stop <- min(wbci$survtime[1],wbci$Tstart[ni]+0.25)
+  Status <- ifelse(wbci$survtime[1]<wbci$Tstart[ni]+0.25,wbci$d[1],2)
+  wbci$Tstop <- c(wbci$Tstart[-1],Stop)
+  wbci$status <- c(rep(0,nrow(wbci)-1),Status)
+  wbci$TEL <- wbci$Tstop - wbci$Tstart
+  wbcffs <- rbind(wbcffs,wbci)
+}
+
+###############################################################################
+###############################################################################
+### Table 8.2: Cross-tabulation of first event status and survival status
+###############################################################################
+###############################################################################
+
+wbcffslast <- wbcffs[c(which(!duplicated(wbcffs$patnr))[-1]-1,nrow(wbcffs)),]
+table(wbcffslast$status,wbcffslast$d)
+
+###############################################################################
+###############################################################################
+### Figure 8.2: Survival and censoring for failure-free survival in the
+### Benelux CML data
+###############################################################################
+###############################################################################
+
+CML.ffs <- survfit(Surv(Tstop, status>0) ~ 1, data = wbcffslast)
+CML.cens <- survfit(Surv(Tstop, status==0) ~ 1, data = wbcffslast)
+
+oldpar <- par(no.readonly=TRUE) # save graphical parameters
+layout(matrix(1:2, 1, 2),widths=c(10.25,9))
+par(mar= c(5, 4, 4, 0.1) + 0.1)
+plot(CML.ffs, mark.time=FALSE, conf.int=FALSE, lwd=2,
+  xlab = "Time (years)", ylab = "Probability")
+title(main="Failure-free survival")
+par(mar= c(5, 0.1, 4, 1) + 0.1)
+plot(CML.cens, mark.time=FALSE, conf.int=FALSE, lwd=2,
+  xlab = "Time (years)", ylab = " ", axes=FALSE)
+axis(1)
+box()
+title(main="Censoring")
+par(oldpar) # reset graphical parameters
+
+###############################################################################
+###############################################################################
+### Figure 8.4: Mean trajectories of LWBC in reverse time
+###############################################################################
+###############################################################################
+
+# Prepare data
+out <- wbcffslast$patnr[wbcffslast$status==0]
+tmp <- wbcffs[!(wbcffs$patnr %in% out),c(1,6,7)]
+tmp <- merge(tmp,wbcffslast[,c(1,9)],by="patnr",all.x=TRUE,all.y=FALSE)
+names(tmp)[4] <- "ffstime"
+tmp$revtime <- tmp$ffstime - tmp$wbctime
+tmp$revtimecat <- cut(tmp$revtime,c(seq(0,7.5,by=0.25),Inf))
+tmp$revtime2 <- (as.numeric(tmp$revtimecat)-1)*0.25
+
+require(gplots)
+plotmeans(lwbc ~ revtime2, data=tmp, n.label=FALSE, sfrac=0.005,
+  xlab="Years until failure", ylab="LWBC")
+
+###############################################################################
+###############################################################################
+### Table 8.3: Time-dependent Cox regression for different endpoints
+###############################################################################
+###############################################################################
+
+# Death
+coxph(Surv(Tstart,Tstop,status==1) ~ sokal+I(age/10)+lwbc, data=wbcffs, method="breslow")
+# Off-study
+coxph(Surv(Tstart,Tstop,status==2) ~ sokal+I(age/10)+lwbc, data=wbcffs, method="breslow")
+# Any event
+coxph(Surv(Tstart,Tstop,status>0) ~ sokal+I(age/10)+lwbc, data=wbcffs, method="breslow")
+
+###############################################################################
+###############################################################################
+### Table 8.4: Time-dependent Cox regression for overall survival
+###############################################################################
+###############################################################################
+
+wbcos$wbctime <- wbcos$Tstart # make a copy of WBC measurement time
+wbcos$status01 <- as.numeric(wbcos$status>0) # make a copy of WBC measurement time
+tt <- wbcos$Tstop[wbcos$status01==1]
+wbcos <- survSplit(wbcos,cut=tt,end="Tstop",start="Tstart",event="status01")
+wbcos <- wbcos[order(wbcos$patnr,wbcos$Tstart),]
+wbcos$TEL <- wbcos$Tstop - wbcos$wbctime
+# old status variables have been copied, only last one can really be different from 0
+wbcos$status[wbcos$status>0 & wbcos$status01==0] <- 0
+
+coxph(Surv(Tstart,Tstop,status) ~ sokal+I(age/10)+lwbc, data=wbcos, method="breslow")
+coxph(Surv(Tstart,Tstop,status) ~ sokal+I(age/10)+lwbc*TEL, data=wbcos, method="breslow")
+
+###############################################################################
+###############################################################################
+### Prediction by landmark models
+###############################################################################
+###############################################################################
+
+LMdata <- NULL
+LMs <- seq(0.5,3.5,by=0.1)
+for (LM in LMs) {
+  LMdataLM <- cutLM(data=wbc,outcome=list(time="survtime",status="d"),
+      LM=LM,horizon=LM+4,covs=list(fixed=c("sokal","age"),varying="lwbc"),
+      format="long",id="patnr",rtime="wbctime")
+  # retain only patients on study (TEL(t)<=0.25)
+  LMdataLM <- LMdataLM[LM - LMdataLM$wbctime <= 0.25,] # of wbctime?
+  LMdataLM <- LMdataLM[!is.na(LMdataLM$patnr),]
+  LMdata <- rbind(LMdata,LMdataLM)
+}
+
+###############################################################################
+###############################################################################
+### Table 8.5 Results of landmark analyses for the WBC counts;
+### s runs from 0.5 to 3.5 with steps of 0.1; window width w=4
+###############################################################################
+###############################################################################
+
+## Simple (ipl)
+LMdata$Tstart <- LMdata$LM
+LMsupercox0 <- coxph(Surv(Tstart,survtime,d) ~ sokal+I(age/10)+lwbc + strata(LM) + cluster(patnr), data=LMdata, method="breslow")
+LMsupercox0
+
+## Extended
+tt <- sort(unique(LMdata$survtime[LMdata$d==1]))
+dim(LMdata)
+LMdata2 <- survSplit(data=LMdata, cut=tt, end="survtime", start="Tstart", event="d")
+dim(LMdata2)
+
+LMdata2$lwbctmins <- LMdata2$lwbc*(LMdata2$survtime - LMdata2$LM)
+LMdata2$lwbctmins2 <- LMdata2$lwbc*(LMdata2$survtime - LMdata2$LM)^2
+
+# ipl
+LMsupercox1 <- coxph(Surv(Tstart,survtime,d) ~ sokal+I(age/10)+lwbc+lwbctmins+lwbctmins2 + strata(LM) + cluster(patnr), data=LMdata2, method="breslow")
+LMsupercox1
+
+# ipl*
+g1 <- function(t) (t/4)
+g2 <- function(t) (t/4)^2
+
+LMdata2$LM1 <- g1(LMdata2$LM)
+LMdata2$LM2 <- g2(LMdata2$LM)
+
+LMsupercox2 <- coxph(Surv(Tstart,survtime,d) ~ sokal+I(age/10)+lwbc+lwbctmins+lwbctmins2 + LM1 + LM2 + cluster(patnr), data=LMdata2, method="breslow")
+LMsupercox2
+
+###############################################################################
+###############################################################################
+### Figure 8.5: Time-varying effect of LWBC for the ipl and the ipl*
+### models of Table 8.5
+###############################################################################
+###############################################################################
+
+tseq <- seq(0,4,by=0.05)
+plot(tseq,coef(LMsupercox1)[["lwbc"]]+coef(LMsupercox1)[["lwbctmins"]]*tseq+coef(LMsupercox1)[["lwbctmins2"]]*tseq^2,
+    type="l",lwd=2,ylim=c(0,2.5),xlab="t-s",ylab="Log hazard ratio")
+lines(tseq,coef(LMsupercox2)[["lwbc"]]+coef(LMsupercox2)[["lwbctmins"]]*tseq+coef(LMsupercox2)[["lwbctmins2"]]*tseq^2,
+    type="l",lwd=2,lty=2)
+lines(c(0,4),rep(coef(LMsupercox0)[["lwbc"]],2),type="l",lty=3)
+legend("topright",lwd=c(2,2,1),lty=1:3,c("Extended ipl","Extended ipl*","Simple ipl"),bty="n")
+
+###############################################################################
+###############################################################################
+### Figure 8.6 Baseline hazard and landmark effects in proportional
+### baselines landmark supermodel
+###############################################################################
+###############################################################################
+
+means <- LMsupercox2$means
+
+ndata <- data.frame(sokal=means[1],age=10*means[2],lwbc=0,lwbctmins=0,lwbctmins2=0,LM1=0,LM2=0)
+sf2 <- survfit(LMsupercox2, newdata=ndata)
+Haz0 <- data.frame(time=sf2$time,surv=sf2$surv); Haz0$Haz <- -log(Haz0$surv)
+
+par(mfrow=c(1,2))
+par(mar=c(5,4,4,1.6)+0.1)
+plot(Haz0$time, Haz0$Haz, type="s", lwd=2, xlab="Time (years)", ylab="Cumulative hazard")
+par(mar=c(5,3.6,4,2)+0.1)
+plot(LMs, exp(LMsupercox2$coef[6]*g1(LMs) + LMsupercox2$coef[7]*g2(LMs)), type="l", lwd=2, xlab="Landmark (s)", ylab="exp(theta(s))")
+par(oldpar) # reset graphical parameters
+
+###############################################################################
+###############################################################################
+### Figure 8.7: Dynamic predictions of death within w = 4 years in the
+### proportional baselines landmark supermodel for different trajectories
+### of LWBC; basic refers to dynamic predictions in a Cox model not
+### taking into account LWBC
+###############################################################################
+###############################################################################
+
+w <- 4
+tt <- wbc$survtime[wbc$d==1]
+tt <- sort(unique(c(0,tt,tt-w)))
+tt <- tt[tt>=0]
+nt <- length(tt)
+
+# Custom-made fuction
+Fwpredict <- function(bet, Haz0, xdata, tt)
+{
+    nt <- length(tt)
+    Haz0$haz <- diff(c(0,Haz0$Haz))
+    Fw <- data.frame(time=tt,Fw=NA)
+    for (i in 1:nt) {
+        sfi <- Haz0 # local copy
+        tti <- tt[i]
+        sfi$haz <- sfi$haz *
+          exp(bet[3]*xdata[i] + bet[4]*xdata[i]*(sfi$time-tti) + bet[5]*xdata[i]*(sfi$time-tti)^2
+            + bet[6]*g1(tt[i]) + bet[7]*g2(tt[i]))
+        sfi$Haz <- cumsum(sfi$haz)
+        tmp <- evalstep(sfi$time,sfi$Haz,c(tti,tti+w),subst=0)
+        Fw$Fw[i] <- 1-exp(-(tmp[2]-tmp[1]))
+    }
+    return(Fw)
+}
+
+# First basic, not taking into account WBC measurements
+cbas <- coxph(Surv(survtime,d) ~ sokal + I(age/10), data=wbcffslast, method="breslow")
+sf <- survfit(cbas)
+Fwbas <- Fwindow(sf,width=4)
+Fwbas <- subset(Fwbas,time>=0.5)
+Fwbas <- subset(Fwbas,time<3.5)
+
+tt <- seq(0.5,3.5,by=0.005)
+nt <- length(tt)
+xdata <- rep(0,nt)
+Fw0 <- Fwpredict(LMsupercox2$coef, Haz0, xdata, tt)
+xdata <- rep(0.5,nt)
+Fw1 <- Fwpredict(LMsupercox2$coef, Haz0, xdata, tt)
+xdata <- tt/3.5
+Fw2 <- Fwpredict(LMsupercox2$coef, Haz0, xdata, tt)
+
+plot(tt,Fw0$Fw,type="l",lwd=2,ylim=c(0,1),xlab="Landmark point",ylab="Death probability")
+lines(tt,Fw1$Fw,lwd=2,lty=3)
+lines(tt,Fw2$Fw,lwd=2,lty=2)
+lines(Fwbas$time,Fwbas$Fw,lwd=2,col=8)
+legend("topleft",c("x(s)=0","x(s)=0.5","x(s)=s/3.5","Basic"),lwd=2,lty=c(1,3,2,1),col=c(1,1,1,8),bty="n")
+
+```
+

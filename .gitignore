@@ -1,0 +1,19 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+
+/*_cache
+/*_files
+/figures
+/.quarto/
+/R/*_files
+/R/*_cache
+/R/figures
+/SAS/figures
+/R/data
+/SAS/data
+
+# Update Ed:
+/chapters/*_cache
+/chapters/*_files

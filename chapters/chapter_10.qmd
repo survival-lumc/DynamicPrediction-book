@@ -1,0 +1,1102 @@
+---
+execute:
+  eval: false
+---
+
+# Dynamic prediction in chronic disease
+
+This file contains R code for the analyses in Chapter 10 of the book Dynamic Prediction in Clinical Survival Analysis (CRC Chapman & Hall) by Hans C. van Houwelingen and Hein Putter
+
+R code written by Hein Putter (H.Putter@lumc.nl for comments/questions)
+The dynpred package is available from CRAN
+
+Consistency with the book has been checked with
+- R version 2.14.0
+- survival version 2.36-10
+- dynpred version 0.1.1
+
+```{r}
+#| label: figbla
+
+require(dynpred)
+require(mstate)
+
+### Make sure that both "bc syntax.R" and "bc.txt" are in tour working directory
+### (or add the complete path (with double \\'s) to the files)
+source("bc syntax.r")
+# head(bc)
+
+###############################################################################
+###############################################################################
+### Figure 10.1: Survival after distant metastasis
+###############################################################################
+###############################################################################
+
+# Subset of data with DM
+bcdm <- bc[bc$diststat==1,]
+bcdm$survdmyrs <- bcdm$survyrs - bcdm$distyrs # survival after DM
+c0 <- coxph(Surv(survdmyrs,survstat==1) ~ 1, data=bcdm)
+sf <- survfit(c0, data=bcdm, censor=FALSE)
+sf <- data.frame(time=sf$time, surv=sf$surv)
+sf <- subset(sf, time<8.5)
+
+plot(sf, type="s", lwd=2, xlim=c(0,10), ylim=c(0,1),
+  xlab="Years since distant metastasis", ylab="Survival")
+
+###############################################################################
+###############################################################################
+### Table 10.1: Counts of the events in Figure 9.5
+###############################################################################
+###############################################################################
+
+### For this, we use the function events() from the mstate package
+bc$lrdmstat <- 0 # simultaneous LR+DM
+bc$lrdmstat[bc$lrecstat==1 & bc$diststat==1 & bc$distyrs==bc$lrecyrs] <- 1
+table(bc$lrdmstat)
+bc$lrdmyrs <- bc$survyrs
+bc$lrdmyrs[bc$lrdmstat==1] <- bc$lrecyrs[bc$lrdmstat==1] # or bc$distyrs
+bc$lrdm2yrs <- pmax(bc$lrecyrs,bc$distyrs)
+# non-simultaneous LR+DM (actually including simultaneous, but that's ok)
+bc$lrdm2stat <- pmin(bc$lrecstat,bc$diststat)
+
+# Effect of time-dependent covariates LR(t), DM(t), and LRDM(t)
+# As in chapter 9, using msprep
+transListn <- list(
+  "OK" = c(2, 3, 4, 7),
+  "LRDM" = c(7),
+  "LR" = c(5, 7),
+  "DM" = c(6, 7),
+  "LR1DM2" = c(7),
+  "DM1LR2" = c(7),
+  "Death" = c())
+tmat <- transMat(transListn)
+tmat
+
+# covariates
+covs <- c("surgery","tusi","nodal","adjchem","tam","periop","age50","age")
+
+bc2 <- msprep(
+  time=c(NA,"lrdmyrs","lrecyrs","distyrs","lrdm2yrs","lrdm2yrs","survyrs"),
+  status=c(NA,"lrdmstat","lrecstat","diststat","lrdm2stat","lrdm2stat","survstat"),
+  data=bc, trans=tmat, keep=covs)
+
+# The event counts of Table 10.1
+events(bc2)
+
+###############################################################################
+###############################################################################
+### Table 10.2: Effects of time-dependent covariates in a Cox model
+###############################################################################
+###############################################################################
+
+# Add time-dependent covariates
+bc2$LR <- 0
+bc2$LR[bc2$trans %in% c(5,6,7,10,11)] <- 1
+bc2$DM <- 0
+bc2$DM[bc2$trans %in% c(5,8,9,10,11)] <- 1
+bc2$LRDM <- bc2$LR * bc2$DM
+bc2$LR[bc2$LR==1 & bc2$LRDM==1] <- 0
+bc2$DM[bc2$DM==1 & bc2$LRDM==1] <- 0
+bc2[1:22,c(1:8,17:19)]
+# Now keep only one line per "from" row from the same patient
+# This needs to be the last one, since that always contains the
+# transition to "death", which we want to retain for survival
+# We will use a trick for that, useful later as well
+bc2$tmp <- 1
+bc2$tmp[bc2$trans %in% c(4,5,7,9,10,11)] <- 0 # transitions into death
+bc2 <- bc2[order(bc2$id,bc2$from,bc2$tmp),]
+bc3 <- bc2[!duplicated(10*bc2$id+bc2$from),] # perhaps later we will rename to bc2
+
+### Time-fixed effects of LR, D, and LRDM
+coxph(Surv(Tstart,Tstop,status) ~ LR + DM + LRDM, data=bc3, method="breslow")
+
+### Time-varying effects of LR, D, and LRDM
+tt <- sort(unique(bc$survyrs[bc$survstat==1]))
+dim(bc3)
+bc4 <- survSplit(data=bc3, cut=tt, end="Tstop", start="Tstart", event="status")
+dim(bc4)
+
+coxph(Surv(Tstart, Tstop, status) ~
+    LR + DM + LRDM + LR:Tstop + DM:Tstop + LRDM:Tstop, data = bc4, method="breslow")
+
+### Effect of LR(t) on DM
+bc2$tmp <- 1
+bc2$tmp[bc2$trans %in% c(3,6)] <- 0 # transitions into DM
+bc2 <- bc2[order(bc2$id,bc2$from,bc2$tmp),]
+bc3 <- bc2[!duplicated(10*bc2$id+bc2$from),] # perhaps later we will rename to bc2
+# Delete everything after DM
+bc3 <- bc3[!(bc3$trans %in% c(5,8,9,10,11)),]
+coxph(Surv(Tstart,Tstop,status) ~ LR, data=bc3, method="breslow")
+
+### Effect of DM(t) on LR
+bc2$tmp <- 1
+bc2$tmp[bc2$trans %in% c(2,8)] <- 0 # transitions into DM
+bc2 <- bc2[order(bc2$id,bc2$from,bc2$tmp),]
+bc3 <- bc2[!duplicated(10*bc2$id+bc2$from),] # perhaps later we will rename to bc2
+bc3[1:7,c(1:8,17:19)]
+# Delete everything after DM
+bc3 <- bc3[!(bc3$trans %in% c(5,6,7,10,11)),]
+coxph(Surv(Tstart,Tstop,status) ~ DM, data=bc3, method="breslow")
+
+###############################################################################
+###############################################################################
+### Role of the fixed covariates
+###############################################################################
+###############################################################################
+
+###############################################################################
+###############################################################################
+### Figure 10.2: Histogram of age
+###############################################################################
+###############################################################################
+hist(bc$age, xlim=c(20,80), xlab="Age", main="")
+
+###############################################################################
+###############################################################################
+### Table 10.3 The Cox model for overall survival in the EORTC breast cancer
+### data (Data set 5)
+###############################################################################
+###############################################################################
+
+### Time-fixed
+# Back to the bc3 used for death
+bc2$tmp <- 1
+bc2$tmp[bc2$trans %in% c(4,5,7,9,10,11)] <- 0 # transitions into death
+bc2 <- bc2[order(bc2$id,bc2$from,bc2$tmp),]
+bc3 <- bc2[!duplicated(10*bc2$id+bc2$from),] # perhaps later we will rename to bc2
+
+coxph(Surv(Tstart,Tstop,status) ~ surgery + tusi + nodal + adjchem + tam +
+  periop + I((age-50)/10) + I(((age-50)/10)^2), data=bc3, method="breslow")
+
+### Time-varying
+tt <- sort(unique(bc$survyrs[bc$survstat==1]))
+dim(bc3)
+bc4 <- survSplit(data=bc3, cut=tt, end="Tstop", start="Tstart", event="status")
+dim(bc4)
+
+bc4$lnt <- log(bc4$Tstop+1)
+cs0 <- coxph(Surv(Tstart,Tstop,status) ~ surgery + tusi + nodal + adjchem + tam +
+  periop + I((age-50)/10) + I(((age-50)/10)^2) + tusi:lnt + nodal:lnt,
+  data=bc4, method="breslow")
+cs0
+## Explicit codings of the interactions doesn't work somehow
+# bc4$tusi5lnt <- as.numeric(bc4$tusi=="> 5 cm")*bc4$lnt
+# bc4$tusi25lnt <- as.numeric(bc4$tusi=="2-5 cm")*bc4$lnt
+# bc4$nodposlnt <- as.numeric(bc4$nodal=="node positive")*bc4$lnt
+# cs0 <- coxph(Surv(Tstart,Tstop,status) ~ surgery + tusi + nodal + adjchem + tam +
+#   periop + I((age-50)/10) + I(((age-50)/10)^2) + tusi25lnt + tusi5lnt + nodposlnt,
+#   data=bc4, method="breslow")
+# cs0
+## So calculate time-varying effects of tumor size and nodal status differently,
+## using contrasts
+bet <- cs0$coef[-13] # remove NA coef
+Sig <- cs0$var[-13,-13] # remove NA coef
+n0 <- length(bet)
+mat <- matrix(0,n0,3)
+mat[12,1] <- 1; mat[11,1] <- -1
+mat[11,2] <- -1
+mat[13,3] <- 1
+b2 <- t(mat) %*% bet
+var2 <- t(mat) %*% Sig %*% mat
+dfr2 <- data.frame(b=b2,se=sqrt(diag(var2)))
+print(dfr2)
+
+###############################################################################
+###############################################################################
+### Table 10.4: The effects on the hazards for LR, DM and LR+DM, respectively
+###############################################################################
+###############################################################################
+
+### DM (including effect of LR(t))
+bc2$tmp <- 1
+bc2$tmp[bc2$trans %in% c(3,6)] <- 0 # transitions into DM
+bc2 <- bc2[order(bc2$id,bc2$from,bc2$tmp),]
+bc3 <- bc2[!duplicated(10*bc2$id+bc2$from),] # perhaps later we will rename to bc2
+bc3[1:7,c(1:8,17:19)]
+# Delete everything after DM
+bc3 <- bc3[!(bc3$trans %in% c(5,8,9,10,11)),]
+cs1 <- coxph(Surv(Tstart,Tstop,status) ~ surgery + tusi + nodal + adjchem + tam +
+  periop + I((age-50)/10) + I(((age-50)/10)^2) + LR, data=bc3, method="breslow")
+cs1
+### LR (including effect of DM(t))
+bc2$tmp <- 1
+bc2$tmp[bc2$trans %in% c(2,8)] <- 0 # transitions into LR
+bc2 <- bc2[order(bc2$id,bc2$from,bc2$tmp),]
+bc3 <- bc2[!duplicated(10*bc2$id+bc2$from),] # perhaps later we will rename to bc2
+# Delete everything after LR
+bc3 <- bc3[!(bc3$trans %in% c(5,6,7,10,11)),]
+cs2 <- coxph(Surv(Tstart,Tstop,status) ~ surgery + tusi + nodal + adjchem + tam +
+  periop + I((age-50)/10) + I(((age-50)/10)^2) + DM, data=bc3, method="breslow")
+cs2
+### LRDM
+bc2$tmp <- 1
+bc2$tmp[bc2$trans==1] <- 0 # transitions into DM
+bc2 <- bc2[order(bc2$id,bc2$from,bc2$tmp),]
+bc3 <- bc2[!duplicated(10*bc2$id+bc2$from),] # perhaps later we will rename to bc2
+bc3[1:7,c(1:8,17:19)]
+# Delete everything after LRDM
+bc3 <- bc2[bc2$trans==1,]
+cs3 <- coxph(Surv(Tstart,Tstop,status) ~ surgery + tusi + nodal + adjchem + tam +
+  periop + I((age-50)/10) + I(((age-50)/10)^2), data=bc3, method="breslow")
+cs3
+
+###############################################################################
+###############################################################################
+### Figure 10.3: Left: Effect of age on the hazards for LR, DM and LR+DM.
+### Right: Effect of age on the hazard for death in the model without stage
+### (right hand side of Table 10.3) and in the different stages
+###############################################################################
+###############################################################################
+
+ageseq <- seq(30, 70, by=0.25)
+age1 <- (ageseq-50)/10
+age2 <- age1^2
+bb <- cs1$coef[9:10]
+agedm <- bb[1]*age1+bb[2]*age2
+bb <- cs2$coef[9:10]
+agelr <- bb[1]*age1+bb[2]*age2
+bb <- cs3$coef[9:10]
+agelrdm <- bb[1]*age1+bb[2]*age2
+
+plot(ageseq,agelr,type="l",lwd=2,ylim=range(c(agedm,agelr,agelrdm)),
+  xlab="Age",ylab="Log hazard ratio")
+lines(ageseq,agedm,type="l",lwd=2,lty=2)
+lines(ageseq,agelrdm,type="l",lwd=2,lty=3)
+legend("topright",c("LR","DM","LRDM"),lwd=2,lty=1:3,bty="n")
+
+###############################################################################
+###############################################################################
+### Table 10.5: The effects of the covariates in a Cox model for survival
+### when taking LM and DR into account
+###############################################################################
+###############################################################################
+
+### Analysis with stages
+bc2$stage <- 1
+bc2$stage[bc2$trans %in% c(6,7)] <- 2
+bc2$stage[bc2$trans %in% c(5,8,9,10,11)] <- 3
+bc2$stage <- factor(bc2$stage)
+# Again look only at survival
+bc2$tmp <- 1
+bc2$tmp[bc2$trans %in% c(4,5,7,9,10,11)] <- 0 # transitions into death
+bc2 <- bc2[order(bc2$id,bc2$from,bc2$tmp),]
+bc3 <- bc2[!duplicated(10*bc2$id+bc2$from),] # perhaps later we will rename to bc2
+
+cs4 <- coxph(Surv(Tstart,Tstop,status) ~ surgery + nodal + adjchem + tam +
+  periop + tusi + I((age-50)/10) + I(((age-50)/10)^2) + 
+  stage + tusi:stage + I((age-50)/10):stage + I(((age-50)/10)^2):stage,
+  data=bc3, method="breslow")
+cs4
+# Effects of tumor size and age for stage 2
+bet <- cs4$coef
+Sig <- cs4$var
+n4 <- length(cs4$coef)
+mat <- matrix(0,n4,4)
+mat[c(7,13),1] <- mat[c(8,14),2] <- mat[c(9,17),3] <- mat[c(10,19),4] <- 1
+b2 <- t(mat) %*% cs4$coef
+var2 <- t(mat) %*% Sig %*% mat
+dfr2 <- data.frame(b=b2,se=sqrt(diag(var2)))
+print(dfr2)
+# Effects of tumor size and age for stage 3
+mat <- matrix(0,n4,4)
+mat[c(7,15),1] <- mat[c(8,16),2] <- mat[c(9,18),3] <- mat[c(10,20),4] <- 1
+b3 <- t(mat) %*% cs4$coef
+var3 <- t(mat) %*% Sig %*% mat
+dfr3 <- data.frame(b=b3,se=sqrt(diag(var3)))
+print(dfr3)
+
+# Illustration of the age effects
+ageseq <- seq(30, 70, by=0.25)
+age1 <- (ageseq-50)/10
+age2 <- age1^2
+bb <- cs0$coef[9:10]
+agesurv <- bb[1]*age1+bb[2]*age2
+bb <- cs4$coef[9:10]
+ages1 <- bb[1]*age1+bb[2]*age2
+bb <- dfr2$b[3:4]
+ages2 <- bb[1]*age1+bb[2]*age2
+bb <- dfr3$b[3:4]
+ages3 <- bb[1]*age1+bb[2]*age2
+
+plot(ageseq,agesurv,type="l",lwd=2,ylim=range(c(agesurv,ages1,ages2,ages3)),
+  col=8,xlab="Age",ylab="Log hazard ratio")
+lines(ageseq,ages1,type="l",lwd=2,lty=1)
+lines(ageseq,ages2,type="l",lwd=2,lty=2)
+lines(ageseq,ages3,type="l",lwd=2,lty=3)
+legend("topleft",c("Total population","Stage 1","Stage 2","Stage 3"),lwd=2,
+  col=c(8,1,1,1),lty=c(1,1:3),bty="n")
+
+###############################################################################
+###############################################################################
+### Lanmarking
+###############################################################################
+###############################################################################
+
+# help function for later
+wald <- function(b,var,idx)
+{  
+    wald <- t(b[idx]) %*% solve(var[idx,idx]) %*% b[idx]
+    pval <- 1-pchisq(wald,df=length(idx))
+    return(data.frame(wald=wald,df=length(idx),pval=pval))
+}
+
+# Landmark time points from 0 to eight years, by one month
+LMs <- seq(0,8,by=1/12)
+w <- 5
+
+### Overall survival from stage 1
+
+LMdata <- NULL
+for (i in seq(along=LMs)) {
+    LM <- LMs[i]
+    bci <- bc[bc$survyrs>LM & bc$lrecyrs>LM & bc$distyrs>LM,]
+    bci$survstat[bci$survyrs>LM+w] <- 0
+    bci$survyrs[bci$survyrs>LM+w] <- LM+w
+    bcicovs <- bci[,match(covs,names(bci))]
+    dfri <- data.frame(patid=bci$patid,survyrs=bci$survyrs,survstat=bci$survstat,LM=LM)
+    dfri <- cbind(dfri,bcicovs)
+    LMdata <- rbind(LMdata,dfri)
+}
+
+## Dimension of LMdata
+
+dim(LMdata)
+table(table(LMdata$patid))
+
+g1 <- function(t) t/8
+g2 <- function(t) (t/8)^2
+LMdata$LM1 <- g1(LMdata$LM)
+LMdata$LM2 <- g2(LMdata$LM)
+
+LMdata$age1 <- (LMdata$age-50)/10
+LMdata$age2 <- ((LMdata$age-50)/10)^2
+LMdata$age1LM <- LMdata$age1*LMdata$LM
+LMdata$age2LM <- LMdata$age2*LMdata$LM
+
+LMdataos1 <- LMdata
+
+## Cox models
+
+coxph(Surv(survyrs,survstat) ~ surgery + tusi + nodal + adjchem + tam +
+  periop + age1 + age2 + strata(LM) + cluster(patid),
+  data=LMdataos1, method="breslow")
+LMcox <- coxph(Surv(survyrs,survstat) ~ surgery + tusi + nodal +
+  age1 + age2 + age1LM + age2LM +
+  strata(LM) + cluster(patid),
+  data=LMdataos1, method="breslow")
+LMcox
+
+## Is interaction age by landmark significant?
+wald(LMcox$coef,LMcox$var,c(8,9))
+## Are other interactions of covariates with LM significant?
+# Type of surgery
+LMcox <- coxph(Surv(survyrs,survstat) ~ surgery + tusi + nodal +
+  age1 + age2 + age1LM + age2LM +
+  surgery:LM + strata(LM) + cluster(patid),
+  data=LMdataos1, method="breslow")
+wald(LMcox$coef,LMcox$var,c(10,11))
+# Tumor size
+LMcox <- coxph(Surv(survyrs,survstat) ~ surgery + tusi + nodal +
+  age1 + age2 + age1LM + age2LM +
+  tusi:LM + strata(LM) + cluster(patid),
+  data=LMdataos1, method="breslow")
+wald(LMcox$coef,LMcox$var,c(10,11))
+# Nodal status
+LMcox <- coxph(Surv(survyrs,survstat) ~ surgery + tusi + nodal +
+  age1 + age2 + age1LM + age2LM +
+  nodal:LM + strata(LM) + cluster(patid),
+  data=LMdataos1, method="breslow")
+wald(LMcox$coef,LMcox$var,10)
+LMcox
+
+LMdataos1$nodeposLM <- as.numeric(LMdataos1$nodal=="node positive")*LMdataos1$LM
+
+LMcox <- coxph(Surv(survyrs,survstat) ~ surgery + tusi + nodal +
+  age1 + age2 + age1LM + age2LM +
+  nodeposLM + strata(LM) + cluster(patid),
+  data=LMdataos1, method="breslow")
+LMcox
+
+## Now ipl* model
+
+LMcoxos1 <- coxph(Surv(survyrs,survstat) ~ surgery + tusi + nodal +
+  age1 + age2 + age1LM + age2LM +
+  nodeposLM + LM1 + LM2 + cluster(patid),
+  data=LMdataos1, method="breslow")
+LMcoxos1
+
+### Overall survival from stage 2
+
+LMdata <- NULL
+for (i in 6:length(LMs)) {
+    LM <- LMs[i]
+    bci <- bc[bc$survyrs>LM & bc$lrecyrs<=LM & bc$lrecstat==1 & bc$distyrs>LM,]
+    bci$survstat[bci$survyrs>LM+w] <- 0
+    bci$survyrs[bci$survyrs>LM+w] <- LM+w
+    bcicovs <- bci[,match(covs,names(bci))]
+    dfri <- data.frame(patid=bci$patid,survyrs=bci$survyrs,survstat=bci$survstat,LM=LM)
+    dfri <- cbind(dfri,bcicovs)
+    LMdata <- rbind(LMdata,dfri)
+}
+
+## Dimension of LMdata
+dim(LMdata)
+table(table(LMdata$patid))
+
+LMdata$LM1 <- g1(LMdata$LM)
+LMdata$LM2 <- g2(LMdata$LM)
+
+LMdata$age1 <- (LMdata$age-50)/10
+LMdata$age2 <- ((LMdata$age-50)/10)^2
+LMdata$age1LM <- LMdata$age1*LMdata$LM
+LMdata$age2LM <- LMdata$age2*LMdata$LM
+
+LMdataos2 <- LMdata
+
+## Cox models
+coxph(Surv(survyrs,survstat) ~ surgery + tusi + nodal + adjchem + tam +
+  periop + age1 + age2 + strata(LM) + cluster(patid),
+  data=LMdataos2, method="breslow")
+LMcox <- coxph(Surv(survyrs,survstat) ~ surgery + tusi + nodal +
+  age1 + age2 + age1LM + age2LM +
+  strata(LM) + cluster(patid),
+  data=LMdataos2, method="breslow")
+LMcox
+
+## Is interaction age by landmark significant?
+wald(LMcox$coef,LMcox$var,c(8,9))
+## Are other interactions of covariates with LM significant?
+# Type of surgery
+LMcox <- coxph(Surv(survyrs,survstat) ~ surgery + tusi + nodal +
+  age1 + age2 + age1LM + age2LM +
+  surgery:LM + strata(LM) + cluster(patid),
+  data=LMdataos2, method="breslow")
+wald(LMcox$coef,LMcox$var,c(10,11))
+# Tumor size
+LMcox <- coxph(Surv(survyrs,survstat) ~ surgery + tusi + nodal +
+  age1 + age2 + age1LM + age2LM +
+  tusi:LM + strata(LM) + cluster(patid),
+  data=LMdataos2, method="breslow")
+wald(LMcox$coef,LMcox$var,c(10,11))
+# Nodal status
+LMcox <- coxph(Surv(survyrs,survstat) ~ surgery + tusi + nodal +
+  age1 + age2 + age1LM + age2LM +
+  nodal:LM + strata(LM) + cluster(patid),
+  data=LMdataos2, method="breslow")
+wald(LMcox$coef,LMcox$var,10)
+
+## Now ipl* model
+
+LMcoxos2 <- coxph(Surv(survyrs,survstat) ~ surgery + tusi + nodal +
+  age1 + age2 + age1LM + age2LM +
+  LM1 + LM2 + cluster(patid),
+  data=LMdataos2, method="breslow")
+LMcoxos2
+
+
+### Overall survival from stage 3
+
+LMdata <- NULL
+for (i in 2:length(LMs)) {
+    LM <- LMs[i]
+    bci <- bc[bc$survyrs>LM & bc$distyrs<=LM & bc$diststat==1,]
+    bci$survstat[bci$survyrs>LM+w] <- 0
+    bci$survyrs[bci$survyrs>LM+w] <- LM+w
+    bcicovs <- bci[,match(covs,names(bci))]
+    dfri <- data.frame(patid=bci$patid,survyrs=bci$survyrs,survstat=bci$survstat,LM=LM)
+    dfri <- cbind(dfri,bcicovs)
+    LMdata <- rbind(LMdata,dfri)
+}
+
+## Dimension of LMdata
+dim(LMdata)
+table(table(LMdata$patid))
+
+LMdata$LM1 <- g1(LMdata$LM)
+LMdata$LM2 <- g2(LMdata$LM)
+
+LMdata$age1 <- (LMdata$age-50)/10
+LMdata$age2 <- ((LMdata$age-50)/10)^2
+LMdata$age1LM <- LMdata$age1*LMdata$LM
+LMdata$age2LM <- LMdata$age2*LMdata$LM
+
+LMdataos3 <- LMdata
+
+## Cox models
+coxph(Surv(survyrs,survstat) ~ surgery + tusi + nodal + adjchem + tam +
+  periop + age1 + age2 + strata(LM) + cluster(patid),
+  data=LMdataos3, method="breslow")
+LMcox <- coxph(Surv(survyrs,survstat) ~ surgery + tusi + nodal +
+  age1 + age2 + age1LM + age2LM +
+  strata(LM) + cluster(patid),
+  data=LMdataos3, method="breslow")
+LMcox
+
+## Is interaction age by landmark significant?
+wald(LMcox$coef,LMcox$var,c(8,9))
+## Are other interactions of covariates with LM significant?
+## Note: no age by landmark interaction in these models
+# Type of surgery
+LMcox <- coxph(Surv(survyrs,survstat) ~ surgery + tusi + nodal +
+  age1 + age2 +
+  surgery:LM + strata(LM) + cluster(patid),
+  data=LMdataos3, method="breslow")
+wald(LMcox$coef,LMcox$var,c(8,9))
+# Tumor size
+LMcox <- coxph(Surv(survyrs,survstat) ~ surgery + tusi + nodal +
+  age1 + age2 +
+  tusi:LM + strata(LM) + cluster(patid),
+  data=LMdataos3, method="breslow")
+wald(LMcox$coef,LMcox$var,c(8,9))
+# Nodal status
+LMcox <- coxph(Surv(survyrs,survstat) ~ surgery + tusi + nodal +
+  age1 + age2 +
+  nodal:LM + strata(LM) + cluster(patid),
+  data=LMdataos3, method="breslow")
+wald(LMcox$coef,LMcox$var,8)
+
+## Are other interactions of covariates with LM significant?
+## In addition to tumor size by landmark interaction?
+# Type of surgery
+LMcox <- coxph(Surv(survyrs,survstat) ~ surgery + tusi + nodal +
+  age1 + age2 +
+  tusi:LM + surgery:LM + strata(LM) + cluster(patid),
+  data=LMdataos3, method="breslow")
+wald(LMcox$coef,LMcox$var,c(11,12))
+# Age
+LMcox <- coxph(Surv(survyrs,survstat) ~ surgery + tusi + nodal +
+  age1 + age2 +
+  tusi:LM + age1LM + age2LM + strata(LM) + cluster(patid),
+  data=LMdataos3, method="breslow")
+wald(LMcox$coef,LMcox$var,c(8,9))
+# Nodal status
+LMcox <- coxph(Surv(survyrs,survstat) ~ surgery + tusi + nodal +
+  age1 + age2 +
+  tusi:LM + nodal:LM + strata(LM) + cluster(patid),
+  data=LMdataos3, method="breslow")
+wald(LMcox$coef,LMcox$var,11)
+
+## No more significant
+
+# Explicitly code tumor size by LM interaction
+LMdataos3$tusi25LM <- as.numeric(LMdataos3$tusi=="2-5 cm")*LMdataos3$LM
+LMdataos3$tusi5LM <- as.numeric(LMdataos3$tusi==">5 cm")*LMdataos3$LM
+LMcox <- coxph(Surv(survyrs,survstat) ~ surgery + tusi + nodal +
+  age1 + age2 +
+  tusi25LM + tusi5LM + strata(LM) + cluster(patid),
+  data=LMdataos3, method="breslow")
+LMcox
+
+## Finally the ipl* model
+
+LMcoxos3 <- coxph(Surv(survyrs,survstat) ~ surgery + tusi + nodal +
+  age1 + age2 +
+  tusi25LM + tusi5LM + LM1 + LM2 + cluster(patid),
+  data=LMdataos3, method="breslow")
+LMcoxos3
+
+### Disease-free survival, starting from stage 1
+
+bc$dfsyrs = pmin(bc$lrecyrs,bc$distyrs,bc$survyrs)
+bc$dfsstat = pmax(bc$lrecstat,bc$diststat,bc$survstat)
+
+LMdata <- NULL
+for (i in seq(along=LMs)) {
+    LM <- LMs[i]
+    bci <- bc[bc$dfsyrs>LM,]
+    bci$dfsstat[bci$dfsyrs>LM+w] <- 0
+    bci$dfsyrs[bci$dfsyrs>LM+w] <- LM+w
+    bcicovs <- bci[,match(covs,names(bci))]
+    dfri <- data.frame(patid=bci$patid,dfsyrs=bci$dfsyrs,dfsstat=bci$dfsstat,LM=LM)
+    dfri <- cbind(dfri,bcicovs)
+    LMdata <- rbind(LMdata,dfri)
+}
+
+## Dimension of LMdata
+
+dim(LMdata)
+table(table(LMdata$patid))
+
+g1 <- function(t) t/8
+g2 <- function(t) (t/8)^2
+LMdata$LM1 <- g1(LMdata$LM)
+LMdata$LM2 <- g2(LMdata$LM)
+
+LMdata$age1 <- (LMdata$age-50)/10
+LMdata$age2 <- ((LMdata$age-50)/10)^2
+LMdata$age1LM <- LMdata$age1*LMdata$LM
+LMdata$age2LM <- LMdata$age2*LMdata$LM
+
+LMdatadfs1 <- LMdata
+
+## Cox models
+
+coxph(Surv(dfsyrs,dfsstat) ~ surgery + tusi + nodal + adjchem + tam +
+  periop + age1 + age2 + strata(LM) + cluster(patid),
+  data=LMdatadfs1, method="breslow")
+LMcox <- coxph(Surv(dfsyrs,dfsstat) ~ surgery + tusi + nodal +
+  age1 + age2 + age1LM + age2LM +
+  strata(LM) + cluster(patid),
+  data=LMdatadfs1, method="breslow")
+LMcox
+
+## Is interaction age by landmark significant?
+wald(LMcox$coef,LMcox$var,c(8,9))
+## Are other interactions of covariates with LM significant?
+# Type of surgery
+LMcox <- coxph(Surv(dfsyrs,dfsstat) ~ surgery + tusi + nodal +
+  age1 + age2 + age1LM + age2LM +
+  surgery:LM + strata(LM) + cluster(patid),
+  data=LMdatadfs1, method="breslow")
+wald(LMcox$coef,LMcox$var,c(10,11))
+# Tumor size
+LMcox <- coxph(Surv(dfsyrs,dfsstat) ~ surgery + tusi + nodal +
+  age1 + age2 + age1LM + age2LM +
+  tusi:LM + strata(LM) + cluster(patid),
+  data=LMdatadfs1, method="breslow")
+wald(LMcox$coef,LMcox$var,c(10,11))
+# Nodal status
+LMcox <- coxph(Surv(dfsyrs,dfsstat) ~ surgery + tusi + nodal +
+  age1 + age2 + age1LM + age2LM +
+  nodal:LM + strata(LM) + cluster(patid),
+  data=LMdatadfs1, method="breslow")
+wald(LMcox$coef,LMcox$var,10)
+LMcox
+
+# Explicitly code node by LM interaction
+LMdatadfs1$nodeposLM <- as.numeric(LMdatadfs1$nodal=="node positive")*LMdatadfs1$LM
+
+LMcox <- coxph(Surv(dfsyrs,dfsstat) ~ surgery + tusi + nodal +
+  age1 + age2 + age1LM + age2LM +
+  nodeposLM + strata(LM) + cluster(patid),
+  data=LMdatadfs1, method="breslow")
+LMcox
+
+## Finally ipl* model
+
+LMcoxdfs1 <- coxph(Surv(dfsyrs,dfsstat) ~ surgery + tusi + nodal +
+  age1 + age2 + age1LM + age2LM +
+  nodeposLM + LM1 + LM2 + cluster(patid),
+  data=LMdatadfs1, method="breslow")
+LMcoxdfs1
+
+##############################
+### Summary
+##############################
+
+### Overall survival from stage 1
+# data: LMdataos1
+LMcoxos1
+### Overall survival from stage 2
+# data: LMdataos2
+LMcoxos2
+### Overall survival from stage 3
+# data: LMdataos3
+LMcoxos3
+### Disease-free survival from stage 1
+# data: LMdatadfs1
+LMcoxdfs1
+
+##############################
+### Prediction
+##############################
+
+w <- 5
+tt <- seq(0,8,length=801)
+nt <- length(tt)
+
+###
+### First "good" patient
+###
+
+### OS stage 1
+ndata <- data.frame(surgery=1,tusi=1,nodal=1,age1=0,age2=0,
+  age1LM=0,age2LM=0,nodeposLM=0,tusi25LM=0,tusi5LM=0,LM1=0,LM2=0)
+ndata$surgery <- factor(ndata$surgery,levels=1:3,labels=levels(LMdataos1$surgery))
+ndata$tusi <- factor(ndata$tusi,levels=1:3,labels=levels(LMdataos1$tusi))
+ndata$nodal <- factor(ndata$nodal,levels=1:2,labels=levels(LMdataos1$nodal))
+
+Hazos1 <- survfit(LMcoxos1,newdata=ndata)
+Hazos1 <- data.frame(time=Hazos1$time,Haz=-log(Hazos1$surv))
+
+Fwpredos1 <- function(bet, Haz, w, tt, age)
+{
+# Haz is cumulative hazard for age=50
+    age1 <- (age-50)/10
+    age2 <- age1^2
+    nt <- length(tt)
+    Haz$haz <- diff(c(0,Haz$Haz))
+    Haz$haz <- Haz$haz*exp(bet[6]*age1 + bet[7]*age2)
+    Fw <- data.frame(time=tt,Fw=NA)
+    for (i in 1:nt) {
+        sfi <- Haz # local copy
+        tti <- tt[i]
+        sfi$haz <- sfi$haz *
+          exp(bet[8]*age1*tti + bet[9]*age2*tti +
+              bet[11]*g1(tti) + bet[12]*g2(tti))
+        sfi$Haz <- cumsum(sfi$haz)
+        tmp <- evalstep(sfi$time,sfi$Haz,c(tti,tti+w),subst=0)
+        Fw$Fw[i] <- 1-exp(-(tmp[2]-tmp[1]))
+    }
+    return(Fw)
+}
+Fwos1age30 <- Fwpredos1(LMcoxos1$coef, Hazos1, w, tt, age=30)
+Fwos1age50 <- Fwpredos1(LMcoxos1$coef, Hazos1, w, tt, age=50)
+Fwos1age70 <- Fwpredos1(LMcoxos1$coef, Hazos1, w, tt, age=70)
+Fwos1age30$age <- 30
+Fwos1age50$age <- 50
+Fwos1age70$age <- 70
+Fwos1age30$stage <- 4
+Fwos1age50$stage <- 4
+Fwos1age70$stage <- 4
+
+#plot(Fwos1age30$time,Fwos1age30$Fw,type="l",lwd=2)
+#lines(Fwos1age50$time,Fwos1age50$Fw,type="l",lwd=2,lty=2)
+#lines(Fwos1age70$time,Fwos1age70$Fw,type="l",lwd=2,lty=3)
+
+### OS stage 2
+# no need to redefine ndata
+Hazos2 <- survfit(LMcoxos2,newdata=ndata)
+Hazos2 <- data.frame(time=Hazos2$time,Haz=-log(Hazos2$surv))
+
+Fwpredos2 <- function(bet, Haz, w, tt, age)
+{
+# Haz is cumulative hazard for age=50
+    age1 <- (age-50)/10
+    age2 <- age1^2
+    nt <- length(tt)
+    Haz$haz <- diff(c(0,Haz$Haz))
+    Haz$haz <- Haz$haz*exp(bet[6]*age1 + bet[7]*age2)
+    Fw <- data.frame(time=tt,Fw=NA)
+    for (i in 1:nt) {
+        sfi <- Haz # local copy
+        tti <- tt[i]
+        sfi$haz <- sfi$haz *
+          exp(bet[8]*age1*tti + bet[9]*age2*tti +
+              bet[10]*g1(tti) + bet[11]*g2(tti))
+        sfi$Haz <- cumsum(sfi$haz)
+        tmp <- evalstep(sfi$time,sfi$Haz,c(tti,tti+w),subst=0)
+        Fw$Fw[i] <- 1-exp(-(tmp[2]-tmp[1]))
+    }
+    return(Fw)
+}
+Fwos2age30 <- Fwpredos2(LMcoxos2$coef, Hazos2, w, tt, age=30)
+Fwos2age50 <- Fwpredos2(LMcoxos2$coef, Hazos2, w, tt, age=50)
+Fwos2age70 <- Fwpredos2(LMcoxos2$coef, Hazos2, w, tt, age=70)
+Fwos2age30$age <- 30
+Fwos2age50$age <- 50
+Fwos2age70$age <- 70
+Fwos2age30$stage <- 1
+Fwos2age50$stage <- 1
+Fwos2age70$stage <- 1
+
+#plot(Fwos2age30$time,Fwos2age30$Fw,type="l",lwd=2)
+#lines(Fwos2age50$time,Fwos2age50$Fw,type="l",lwd=2,lty=2)
+#lines(Fwos2age70$time,Fwos2age70$Fw,type="l",lwd=2,lty=3)
+
+### OS stage 3
+# no need to redefine ndata
+Hazos3 <- survfit(LMcoxos3,newdata=ndata)
+Hazos3 <- data.frame(time=Hazos3$time,Haz=-log(Hazos3$surv))
+
+Fwpredos3 <- function(bet, Haz, w, tt, age)
+{
+# Haz is cumulative hazard for age=50
+    age1 <- (age-50)/10
+    age2 <- age1^2
+    nt <- length(tt)
+    Haz$haz <- diff(c(0,Haz$Haz))
+    Haz$haz <- Haz$haz*exp(bet[6]*age1 + bet[7]*age2)
+    Fw <- data.frame(time=tt,Fw=NA)
+    for (i in 1:nt) {
+        sfi <- Haz # local copy
+        tti <- tt[i]
+        sfi$haz <- sfi$haz *
+          exp(bet[10]*g1(tti) + bet[11]*g2(tti))
+        sfi$Haz <- cumsum(sfi$haz)
+        tmp <- evalstep(sfi$time,sfi$Haz,c(tti,tti+w),subst=0)
+        Fw$Fw[i] <- 1-exp(-(tmp[2]-tmp[1]))
+    }
+    return(Fw)
+}
+Fwos3age30 <- Fwpredos3(LMcoxos3$coef, Hazos3, w, tt, age=30)
+Fwos3age50 <- Fwpredos3(LMcoxos3$coef, Hazos3, w, tt, age=50)
+Fwos3age70 <- Fwpredos3(LMcoxos3$coef, Hazos3, w, tt, age=70)
+Fwos3age30$age <- 30
+Fwos3age50$age <- 50
+Fwos3age70$age <- 70
+Fwos3age30$stage <- 2
+Fwos3age50$stage <- 2
+Fwos3age70$stage <- 2
+
+#plot(Fwos3age30$time,Fwos3age30$Fw,type="l",lwd=2)
+#lines(Fwos3age50$time,Fwos3age50$Fw,type="l",lwd=2,lty=2)
+#lines(Fwos3age70$time,Fwos3age70$Fw,type="l",lwd=2,lty=3)
+
+### DFS stage 1
+Hazdfs1 <- survfit(LMcoxdfs1,newdata=ndata)
+Hazdfs1 <- data.frame(time=Hazdfs1$time,Haz=-log(Hazdfs1$surv))
+
+Fwpreddfs1 <- function(bet, Haz, w, tt, age)
+{
+# Haz is cumulative hazard for age=50
+    age1 <- (age-50)/10
+    age2 <- age1^2
+    nt <- length(tt)
+    Haz$haz <- diff(c(0,Haz$Haz))
+    Haz$haz <- Haz$haz*exp(bet[6]*age1 + bet[7]*age2)
+    Fw <- data.frame(time=tt,Fw=NA)
+    for (i in 1:nt) {
+        sfi <- Haz # local copy
+        tti <- tt[i]
+        sfi$haz <- sfi$haz *
+          exp(bet[8]*age1*tti + bet[9]*age2*tti +
+              bet[11]*g1(tti) + bet[12]*g2(tti))
+        sfi$Haz <- cumsum(sfi$haz)
+        tmp <- evalstep(sfi$time,sfi$Haz,c(tti,tti+w),subst=0)
+        Fw$Fw[i] <- 1-exp(-(tmp[2]-tmp[1]))
+    }
+    return(Fw)
+}
+Fwdfs1age30 <- Fwpreddfs1(LMcoxdfs1$coef, Hazdfs1, w, tt, age=30)
+Fwdfs1age50 <- Fwpreddfs1(LMcoxdfs1$coef, Hazdfs1, w, tt, age=50)
+Fwdfs1age70 <- Fwpreddfs1(LMcoxdfs1$coef, Hazdfs1, w, tt, age=70)
+Fwdfs1age30$age <- 30
+Fwdfs1age50$age <- 50
+Fwdfs1age70$age <- 70
+Fwdfs1age30$stage <- 3
+Fwdfs1age50$stage <- 3
+Fwdfs1age70$stage <- 3
+
+
+### First plot of the baseline hazards (and ipl* landmark effects)
+Hazos1p <- Hazos1; Hazos1p <- Hazos1p[Hazos1p$time<=10,]
+Hazos2p <- Hazos2; Hazos2p <- Hazos2p[Hazos2p$time<=10,]
+Hazos3p <- Hazos3; Hazos3p <- Hazos3p[Hazos3p$time<=10,]
+Hazdfs1p <- Hazdfs1; Hazdfs1p <- Hazdfs1p[Hazdfs1p$time<=10,]
+LMcoxos1$coef[["LM1"]]
+
+oldpar <- par(no.readonly=TRUE) # save graphical parameters
+par(mfrow=c(1,2))
+par(mar=c(5,4,4,1.6)+0.1)
+plot(c(0,Hazos3p$time), c(0,Hazos3p$Haz), type="s", lwd=2, lty=3,
+  xlab="Time (years)", ylab="Cumulative hazard")
+lines(c(0,Hazos1p$time), c(0,Hazos1p$Haz), type="s", lwd=2)
+lines(c(0,Hazos2p$time), c(0,Hazos2p$Haz), type="s", lwd=2, lty=2)
+lines(c(0,Hazdfs1p$time), c(0,Hazdfs1p$Haz), type="s", lwd=2, col=8)
+legend("topleft",c("OS stage 1","OS stage 2","OS stage 3","DFS stage 1"),lwd=2,lty=c(1:3,1),col=c(1,1,1,8),bty="n")
+par(mar=c(5,3.6,4,2)+0.1)
+plot(LMs, exp(LMcoxos1$coef[["LM1"]]*g1(LMs) + LMcoxos1$coef[["LM2"]]*g2(LMs)),
+  type="l", lwd=2, ylim=c(0,1), xlab="Landmark (s)", ylab="exp(theta(s))")
+lines(LMs, exp(LMcoxos2$coef[["LM1"]]*g1(LMs) + LMcoxos2$coef[["LM2"]]*g2(LMs)),
+  type="l", lwd=2, lty=2)
+lines(LMs, exp(LMcoxos3$coef[["LM1"]]*g1(LMs) + LMcoxos3$coef[["LM2"]]*g2(LMs)),
+  type="l", lwd=2, lty=3)
+lines(LMs, exp(LMcoxdfs1$coef[["LM1"]]*g1(LMs) + LMcoxdfs1$coef[["LM2"]]*g2(LMs)),
+  type="l", lwd=2, col=8)
+legend("topright",c("OS stage 1","OS stage 2","OS stage 3","DFS stage 1"),lwd=2,lty=c(1:3,1),col=c(1,1,1,8),bty="n")
+par(oldpar) # reset graphical parameters
+
+Fwall <- rbind(Fwos1age30,Fwos1age50,Fwos1age70,
+  Fwos2age30,Fwos2age50,Fwos2age70,
+  Fwos3age30,Fwos3age50,Fwos3age70,
+  Fwdfs1age30,Fwdfs1age50,Fwdfs1age70)
+Fwall$stage <- factor(Fwall$stage,
+  labels=c("OS, stage 2","OS, stage 3","DFS, stage 1","OS, stage 1"))
+Fwall$age <- factor(Fwall$age,labels=c("Age = 30","Age = 50","Age = 70"))
+
+require(lattice)
+key.age <- list(text = list(levels(Fwall$age)),
+    lines = list(lwd = 2, lty = 1:3, col = "black"))
+xyplot(Fw ~ time | stage, data=Fwall, groups=age, ylim=c(-0.02,1.02), lwd=2, type="l", col=1, lty=1:3,
+  xlab="Prediction time (years)",ylab="Fixed width probability", key=key.age)
+
+### Zoom in DFS and OS from stage 1 and plot again
+Fwall2 <- Fwall[as.numeric(Fwall$stage)>2,]
+key.age <- list(text = list(levels(Fwall$age)),
+    lines = list(lwd = 2, lty = 1:3, col = "black"))
+xyplot(Fw ~ time | stage, data=Fwall2, groups=age, ylim=c(-0.01,0.32), lwd=2, type="l", col=1, lty=1:3,
+  xlab="Prediction time (years)",ylab="Fixed width probability", key=key.age)
+
+###
+### Now "bad" patient
+###
+
+### OS stage 1
+ndata <- data.frame(surgery=2,tusi=3,nodal=2,age1=0,age2=0,
+  age1LM=0,age2LM=0,nodeposLM=0,tusi25LM=0,tusi5LM=0,LM1=0,LM2=0)
+ndata$surgery <- factor(ndata$surgery,levels=1:3,labels=levels(LMdataos1$surgery))
+ndata$tusi <- factor(ndata$tusi,levels=1:3,labels=levels(LMdataos1$tusi))
+ndata$nodal <- factor(ndata$nodal,levels=1:2,labels=levels(LMdataos1$nodal))
+
+Hazos1 <- survfit(LMcoxos1,newdata=ndata)
+Hazos1 <- data.frame(time=Hazos1$time,Haz=-log(Hazos1$surv))
+
+Fwpredos1 <- function(bet, Haz, w, tt, age) #!!! overwrites previous def
+{
+# Haz is cumulative hazard for age=50
+    age1 <- (age-50)/10
+    age2 <- age1^2
+    nt <- length(tt)
+    Haz$haz <- diff(c(0,Haz$Haz))
+    Haz$haz <- Haz$haz*exp(bet[6]*age1 + bet[7]*age2)
+    Fw <- data.frame(time=tt,Fw=NA)
+    for (i in 1:nt) {
+        sfi <- Haz # local copy
+        tti <- tt[i]
+        sfi$haz <- sfi$haz *
+          exp(bet[8]*age1*tti + bet[9]*age2*tti +
+              bet[10]*tti + bet[11]*g1(tti) + bet[12]*g2(tti))
+        sfi$Haz <- cumsum(sfi$haz)
+        tmp <- evalstep(sfi$time,sfi$Haz,c(tti,tti+w),subst=0)
+        Fw$Fw[i] <- 1-exp(-(tmp[2]-tmp[1]))
+    }
+    return(Fw)
+}
+Fwos1age30 <- Fwpredos1(LMcoxos1$coef, Hazos1, w, tt, age=30)
+Fwos1age50 <- Fwpredos1(LMcoxos1$coef, Hazos1, w, tt, age=50)
+Fwos1age70 <- Fwpredos1(LMcoxos1$coef, Hazos1, w, tt, age=70)
+Fwos1age30$age <- 30
+Fwos1age50$age <- 50
+Fwos1age70$age <- 70
+Fwos1age30$stage <- 4
+Fwos1age50$stage <- 4
+Fwos1age70$stage <- 4
+
+#plot(Fwos1age30$time,Fwos1age30$Fw,type="l",lwd=2)
+#lines(Fwos1age50$time,Fwos1age50$Fw,type="l",lwd=2,lty=2)
+#lines(Fwos1age70$time,Fwos1age70$Fw,type="l",lwd=2,lty=3)
+
+### OS stage 2
+# no need to redefine ndata
+Hazos2 <- survfit(LMcoxos2,newdata=ndata)
+Hazos2 <- data.frame(time=Hazos2$time,Haz=-log(Hazos2$surv))
+
+Fwpredos2 <- function(bet, Haz, w, tt, age) #!!! overwrites previous def
+{
+# Haz is cumulative hazard for age=50
+    age1 <- (age-50)/10
+    age2 <- age1^2
+    nt <- length(tt)
+    Haz$haz <- diff(c(0,Haz$Haz))
+    Haz$haz <- Haz$haz*exp(bet[6]*age1 + bet[7]*age2)
+    Fw <- data.frame(time=tt,Fw=NA)
+    for (i in 1:nt) {
+        sfi <- Haz # local copy
+        tti <- tt[i]
+        sfi$haz <- sfi$haz *
+          exp(bet[8]*age1*tti + bet[9]*age2*tti +
+              bet[10]*g1(tti) + bet[11]*g2(tti))
+        sfi$Haz <- cumsum(sfi$haz)
+        tmp <- evalstep(sfi$time,sfi$Haz,c(tti,tti+w),subst=0)
+        Fw$Fw[i] <- 1-exp(-(tmp[2]-tmp[1]))
+    }
+    return(Fw)
+}
+Fwos2age30 <- Fwpredos2(LMcoxos2$coef, Hazos2, w, tt, age=30)
+Fwos2age50 <- Fwpredos2(LMcoxos2$coef, Hazos2, w, tt, age=50)
+Fwos2age70 <- Fwpredos2(LMcoxos2$coef, Hazos2, w, tt, age=70)
+Fwos2age30$age <- 30
+Fwos2age50$age <- 50
+Fwos2age70$age <- 70
+Fwos2age30$stage <- 1
+Fwos2age50$stage <- 1
+Fwos2age70$stage <- 1
+
+#plot(Fwos2age30$time,Fwos2age30$Fw,type="l",lwd=2)
+#lines(Fwos2age50$time,Fwos2age50$Fw,type="l",lwd=2,lty=2)
+#lines(Fwos2age70$time,Fwos2age70$Fw,type="l",lwd=2,lty=3)
+
+### OS stage 3
+# no need to redefine ndata
+Hazos3 <- survfit(LMcoxos3,newdata=ndata)
+Hazos3 <- data.frame(time=Hazos3$time,Haz=-log(Hazos3$surv))
+
+Fwpredos3 <- function(bet, Haz, w, tt, age) #!!! overwrites previous def
+{
+# Haz is cumulative hazard for age=50
+    age1 <- (age-50)/10
+    age2 <- age1^2
+    nt <- length(tt)
+    Haz$haz <- diff(c(0,Haz$Haz))
+    Haz$haz <- Haz$haz*exp(bet[6]*age1 + bet[7]*age2)
+    Fw <- data.frame(time=tt,Fw=NA)
+    for (i in 1:nt) {
+        sfi <- Haz # local copy
+        tti <- tt[i]
+        sfi$haz <- sfi$haz *
+          exp(bet[9]*tti + bet[10]*g1(tti) + bet[11]*g2(tti))
+        sfi$Haz <- cumsum(sfi$haz)
+        tmp <- evalstep(sfi$time,sfi$Haz,c(tti,tti+w),subst=0)
+        Fw$Fw[i] <- 1-exp(-(tmp[2]-tmp[1]))
+    }
+    return(Fw)
+}
+Fwos3age30 <- Fwpredos3(LMcoxos3$coef, Hazos3, w, tt, age=30)
+Fwos3age50 <- Fwpredos3(LMcoxos3$coef, Hazos3, w, tt, age=50)
+Fwos3age70 <- Fwpredos3(LMcoxos3$coef, Hazos3, w, tt, age=70)
+Fwos3age30$age <- 30
+Fwos3age50$age <- 50
+Fwos3age70$age <- 70
+Fwos3age30$stage <- 2
+Fwos3age50$stage <- 2
+Fwos3age70$stage <- 2
+
+#plot(Fwos3age30$time,Fwos3age30$Fw,type="l",lwd=2)
+#lines(Fwos3age50$time,Fwos3age50$Fw,type="l",lwd=2,lty=2)
+#lines(Fwos3age70$time,Fwos3age70$Fw,type="l",lwd=2,lty=3)
+
+### DFS stage 1
+Hazdfs1 <- survfit(LMcoxdfs1,newdata=ndata)
+Hazdfs1 <- data.frame(time=Hazdfs1$time,Haz=-log(Hazdfs1$surv))
+
+Fwpreddfs1 <- function(bet, Haz, w, tt, age) #!!! overwrites previous def
+{
+# Haz is cumulative hazard for age=50
+    age1 <- (age-50)/10
+    age2 <- age1^2
+    nt <- length(tt)
+    Haz$haz <- diff(c(0,Haz$Haz))
+    Haz$haz <- Haz$haz*exp(bet[6]*age1 + bet[7]*age2)
+    Fw <- data.frame(time=tt,Fw=NA)
+    for (i in 1:nt) {
+        sfi <- Haz # local copy
+        tti <- tt[i]
+        sfi$haz <- sfi$haz *
+          exp(bet[8]*age1*tti + bet[9]*age2*tti +
+              bet[10]*tti + bet[11]*g1(tti) + bet[12]*g2(tti))
+        sfi$Haz <- cumsum(sfi$haz)
+        tmp <- evalstep(sfi$time,sfi$Haz,c(tti,tti+w),subst=0)
+        Fw$Fw[i] <- 1-exp(-(tmp[2]-tmp[1]))
+    }
+    return(Fw)
+}
+Fwdfs1age30 <- Fwpreddfs1(LMcoxdfs1$coef, Hazdfs1, w, tt, age=30)
+Fwdfs1age50 <- Fwpreddfs1(LMcoxdfs1$coef, Hazdfs1, w, tt, age=50)
+Fwdfs1age70 <- Fwpreddfs1(LMcoxdfs1$coef, Hazdfs1, w, tt, age=70)
+Fwdfs1age30$age <- 30
+Fwdfs1age50$age <- 50
+Fwdfs1age70$age <- 70
+Fwdfs1age30$stage <- 3
+Fwdfs1age50$stage <- 3
+Fwdfs1age70$stage <- 3
+
+#plot(Fwdfs1age30$time,Fwdfs1age30$Fw,type="l",lwd=2)
+#lines(Fwdfs1age50$time,Fwdfs1age50$Fw,type="l",lwd=2,lty=2)
+#lines(Fwdfs1age70$time,Fwdfs1age70$Fw,type="l",lwd=2,lty=3)
+
+Fwall <- rbind(Fwos1age30,Fwos1age50,Fwos1age70,
+  Fwos2age30,Fwos2age50,Fwos2age70,
+  Fwos3age30,Fwos3age50,Fwos3age70,
+  Fwdfs1age30,Fwdfs1age50,Fwdfs1age70)
+Fwall$stage <- factor(Fwall$stage,
+  labels=c("OS, stage 2","OS, stage 3","DFS, stage 1","OS, stage 1"))
+Fwall$age <- factor(Fwall$age,labels=c("Age = 30","Age = 50","Age = 70"))
+
+require(lattice)
+key.age <- list(text = list(levels(Fwall$age)),
+    lines = list(lwd = 2, lty = 1:3, col = "black"))
+xyplot(Fw ~ time | stage, data=Fwall, groups=age, ylim=c(-0.02,1.02), lwd=2, type="l", col=1, lty=1:3,
+  xlab="Prediction time (years)",ylab="Fixed width probability", key=key.age)
+```
+

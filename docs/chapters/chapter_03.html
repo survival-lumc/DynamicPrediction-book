@@ -1,0 +1,938 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.3.433">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+
+<title>Dynamic Prediction in Clinical Survival Analysis - 3&nbsp; Measuring the predictive value of a Cox model</title>
+<style>
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="../site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="../site_libs/quarto-nav/headroom.min.js"></script>
+<script src="../site_libs/clipboard/clipboard.min.js"></script>
+<script src="../site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="../site_libs/quarto-search/fuse.min.js"></script>
+<script src="../site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="../">
+<link href="../chapters/chapter_04.html" rel="next">
+<link href="../chapters/chapter_02.html" rel="prev">
+<link href="../front-curves.png" rel="icon" type="image/png">
+<script src="../site_libs/quarto-html/quarto.js"></script>
+<script src="../site_libs/quarto-html/popper.min.js"></script>
+<script src="../site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="../site_libs/quarto-html/anchor.min.js"></script>
+<link href="../site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="../site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="../site_libs/bootstrap/bootstrap.min.css" rel="stylesheet" id="quarto-bootstrap" data-mode="light">
+<script id="quarto-search-options" type="application/json">{
+  "location": "sidebar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "start",
+  "type": "textbox",
+  "limit": 20,
+  "language": {
+    "search-no-results-text": "No results",
+    "search-matching-documents-text": "matching documents",
+    "search-copy-link-title": "Copy link to search",
+    "search-hide-matches-text": "Hide additional matches",
+    "search-more-match-text": "more match in this document",
+    "search-more-matches-text": "more matches in this document",
+    "search-clear-button-title": "Clear",
+    "search-detached-cancel-button-title": "Cancel",
+    "search-submit-button-title": "Submit",
+    "search-label": "Search"
+  }
+}</script>
+
+
+</head>
+
+<body class="nav-sidebar floating">
+
+<div id="quarto-search-results"></div>
+  <header id="quarto-header" class="headroom fixed-top">
+  <nav class="quarto-secondary-nav">
+    <div class="container-fluid d-flex">
+      <button type="button" class="quarto-btn-toggle btn" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar,#quarto-sidebar-glass" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+        <i class="bi bi-layout-text-sidebar-reverse"></i>
+      </button>
+      <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../chapters/chapter_01.html">Prognostic models for survival data using (clinical) information available at baseline, based on the Cox model</a></li><li class="breadcrumb-item"><a href="../chapters/chapter_03.html"><span class="chapter-number">3</span>&nbsp; <span class="chapter-title">Measuring the predictive value of a Cox model</span></a></li></ol></nav>
+      <a class="flex-grow-1" role="button" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar,#quarto-sidebar-glass" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
+      </a>
+      <button type="button" class="btn quarto-search-button" aria-label="" onclick="window.quartoOpenSearch();">
+        <i class="bi bi-search"></i>
+      </button>
+    </div>
+  </nav>
+</header>
+<!-- content -->
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article">
+<!-- sidebar -->
+  <nav id="quarto-sidebar" class="sidebar collapse collapse-horizontal sidebar-navigation floating overflow-auto">
+    <div class="pt-lg-2 mt-2 text-left sidebar-header sidebar-header-stacked">
+      <a href="../index.html" class="sidebar-logo-link">
+      <img src="../front-curves.png" alt="" class="sidebar-logo py-0 d-lg-inline d-none">
+      </a>
+    <div class="sidebar-title mb-0 py-0">
+      <a href="../"></a> 
+        <div class="sidebar-tools-main">
+    <a href="https://github.com/survival-lumc/DynamicPrediction-book" rel="" title="Source Code" class="quarto-navigation-tool px-1" aria-label="Source Code"><i class="bi bi-github"></i></a>
+</div>
+    </div>
+      </div>
+        <div class="mt-2 flex-shrink-0 align-items-center">
+        <div class="sidebar-search">
+        <div id="quarto-search" class="" title="Search"></div>
+        </div>
+        </div>
+    <div class="sidebar-menu-container"> 
+    <ul class="list-unstyled mt-1">
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../index.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Preface</span></a>
+  </div>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" aria-expanded="true">
+ <span class="menu-text">Prognostic models for survival data using (clinical) information available at baseline, based on the Cox model</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" aria-expanded="true" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-1" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/chapter_01.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">The special nature of survival data</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/chapter_02.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">Cox regression model</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/chapter_03.html" class="sidebar-item-text sidebar-link active">
+ <span class="menu-text"><span class="chapter-number">3</span>&nbsp; <span class="chapter-title">Measuring the predictive value of a Cox model</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/chapter_04.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">4</span>&nbsp; <span class="chapter-title">Calibration and revision of Cox models</span></span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" aria-expanded="true">
+ <span class="menu-text">Prognostic models for survival data using (clinical) information available at baseline, when the proportional hazards assumption of the Cox model is violated</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" aria-expanded="true" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-2" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/chapter_05.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">5</span>&nbsp; <span class="chapter-title">Mechanisms explaining violation of the Cox model</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/chapter_06.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">6</span>&nbsp; <span class="chapter-title">Non-proportional hazards models</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/chapter_07.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">7</span>&nbsp; <span class="chapter-title">Dealing with non-proportional hazards</span></span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" aria-expanded="true">
+ <span class="menu-text">Dynamic prognostic models for survival data using time-dependent information</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" aria-expanded="true" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-3" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/chapter_08.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">8</span>&nbsp; <span class="chapter-title">Dynamic predictions using biomarkers</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/chapter_09.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">9</span>&nbsp; <span class="chapter-title">Dynamic prediction in multi-state models</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/chapter_10.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">10</span>&nbsp; <span class="chapter-title">Dynamic prediction in chronic disease</span></span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" aria-expanded="true">
+ <span class="menu-text">Dynamic prognostic models for survival data using genomic data</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" aria-expanded="true" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-4" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/chapter_11.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">11</span>&nbsp; <span class="chapter-title">Penalized Cox models</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../chapters/chapter_12.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">12</span>&nbsp; <span class="chapter-title">Dynamic prediction based on genomic data</span></span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../errata.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Errata</span></a>
+  </div>
+</li>
+    </ul>
+    </div>
+</nav>
+<div id="quarto-sidebar-glass" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar,#quarto-sidebar-glass"></div>
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">Table of contents</h2>
+   
+  <ul>
+  <li><a href="#table-3.1-the-fitted-cox-model-for-data-set-1-ovarian-cancer" id="toc-table-3.1-the-fitted-cox-model-for-data-set-1-ovarian-cancer" class="nav-link active" data-scroll-target="#table-3.1-the-fitted-cox-model-for-data-set-1-ovarian-cancer">Table 3.1: The fitted Cox model for Data Set 1 (ovarian cancer)</a></li>
+  <li><a href="#figure-3.1-predicted-survival-curves-for-different-values-of-the-prognostic-index" id="toc-figure-3.1-predicted-survival-curves-for-different-values-of-the-prognostic-index" class="nav-link" data-scroll-target="#figure-3.1-predicted-survival-curves-for-different-values-of-the-prognostic-index">Figure 3.1: Predicted survival curves for different values of the prognostic index</a></li>
+  <li><a href="#figure-3.2-censored-80-tolerance-intervals-for-different-values-of-the-prognostic-index" id="toc-figure-3.2-censored-80-tolerance-intervals-for-different-values-of-the-prognostic-index" class="nav-link" data-scroll-target="#figure-3.2-censored-80-tolerance-intervals-for-different-values-of-the-prognostic-index">Figure 3.2: (Censored) 80% tolerance intervals for different values of the prognostic index</a></li>
+  <li><a href="#the-rest-to-be-divided" id="toc-the-rest-to-be-divided" class="nav-link" data-scroll-target="#the-rest-to-be-divided">The rest (to be divided)</a></li>
+  </ul>
+<div class="toc-actions"><div><i class="bi bi-github"></i></div><div class="action-links"><p><a href="https://github.com/survival-lumc/DynamicPrediction-book/issues/new" class="toc-action">Report an issue</a></p></div></div></nav>
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default">
+<div class="quarto-title">
+<div class="quarto-title-block"><div><h1 class="title"><span class="chapter-number">3</span>&nbsp; <span class="chapter-title">Measuring the predictive value of a Cox model</span></h1><button type="button" class="btn code-tools-button dropdown-toggle" id="quarto-code-tools-menu" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi"></i> Show/hide all code</button><ul class="dropdown-menu dropdown-menu-end" aria-labelelledby="quarto-code-tools-menu"><li><a id="quarto-show-all-code" class="dropdown-item" href="javascript:void(0)" role="button">Show All Code</a></li><li><a id="quarto-hide-all-code" class="dropdown-item" href="javascript:void(0)" role="button">Hide All Code</a></li></ul></div></div>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+    
+  
+    
+  </div>
+  
+
+</header>
+
+<p>This file contains R code for the analyses in Chapter 3 of the book Dynamic Prediction in Clinical Survival Analysis (CRC Chapman &amp; Hall) by Hans C. van Houwelingen and Hein Putter</p>
+<p>R code written by Hein Putter (H.Putter@lumc.nl for comments/questions) The dynpred package is available from CRAN</p>
+<p>Consistency with the book has been checked with - R version 2.14.0 - survival version 2.36-10 - dynpred version 0.1.1</p>
+<p>NOTE USE STYLER!!</p>
+<section id="table-3.1-the-fitted-cox-model-for-data-set-1-ovarian-cancer" class="level2">
+<h2 class="anchored" data-anchor-id="table-3.1-the-fitted-cox-model-for-data-set-1-ovarian-cancer">Table 3.1: The fitted Cox model for Data Set 1 (ovarian cancer)</h2>
+<div class="cell" data-hash="chapter_03_cache/html/table3.1_8b4a0678ccdec6bc472271d35162fa47">
+<details open="">
+<summary>Code</summary>
+<div class="sourceCode cell-code" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">require</span>(dynpred)</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="fu">data</span>(ova)</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>cfull <span class="ot">&lt;-</span> <span class="fu">coxph</span>(<span class="fu">Surv</span>(tyears, d) <span class="sc">~</span> FIGO <span class="sc">+</span> Diam <span class="sc">+</span> Broders <span class="sc">+</span> Ascites <span class="sc">+</span> Karn,</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">data =</span> ova, <span class="at">method=</span><span class="st">"breslow"</span>)</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>cfull</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="co"># The prognostic index</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>Xbeta <span class="ot">&lt;-</span> ova<span class="sc">$</span>Xbeta <span class="ot">&lt;-</span> cfull<span class="sc">$</span>linear.predictors</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="fu">mean</span>(ova<span class="sc">$</span>Xbeta)</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a><span class="fu">sqrt</span>(<span class="fu">var</span>(ova<span class="sc">$</span>Xbeta))</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</details>
+</div>
+</section>
+<section id="figure-3.1-predicted-survival-curves-for-different-values-of-the-prognostic-index" class="level2">
+<h2 class="anchored" data-anchor-id="figure-3.1-predicted-survival-curves-for-different-values-of-the-prognostic-index">Figure 3.1: Predicted survival curves for different values of the prognostic index</h2>
+<div class="cell" data-hash="chapter_03_cache/html/fig3.1_c4d0202bb1ee744d141cace9f7f48518">
+<details open="">
+<summary>Code</summary>
+<div class="sourceCode cell-code" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>cXbeta <span class="ot">&lt;-</span> <span class="fu">coxph</span>(<span class="fu">Surv</span>(tyears, d) <span class="sc">~</span> Xbeta, <span class="at">data=</span>ova, <span class="at">method=</span><span class="st">"breslow"</span>)</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>nd <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">Xbeta=</span><span class="sc">-</span><span class="dv">2</span><span class="sc">*</span><span class="fu">sd</span>(Xbeta))</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>sf <span class="ot">&lt;-</span> <span class="fu">survfit</span>(cXbeta,<span class="at">newdata=</span>nd)</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(sf,<span class="at">lwd=</span><span class="dv">2</span>,<span class="at">conf.int=</span><span class="cn">FALSE</span>,<span class="at">mark.time=</span><span class="cn">FALSE</span>,<span class="at">lty=</span><span class="dv">2</span>,<span class="at">xlab=</span><span class="st">"Time in years"</span>,<span class="at">ylab=</span><span class="st">"Survival function"</span>)</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>nd <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">Xbeta=</span><span class="sc">-</span><span class="dv">1</span><span class="sc">*</span><span class="fu">sd</span>(Xbeta))</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>sf <span class="ot">&lt;-</span> <span class="fu">survfit</span>(cXbeta,<span class="at">newdata=</span>nd)</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a><span class="fu">lines</span>(sf,<span class="at">lwd=</span><span class="dv">2</span>,<span class="at">conf.int=</span><span class="cn">FALSE</span>,<span class="at">lty=</span><span class="dv">3</span>,<span class="at">mark.time=</span><span class="cn">FALSE</span>)</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>nd <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">Xbeta=</span><span class="dv">0</span>)</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>sf <span class="ot">&lt;-</span> <span class="fu">survfit</span>(cXbeta,<span class="at">newdata=</span>nd)</span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a><span class="fu">lines</span>(sf,<span class="at">lwd=</span><span class="dv">2</span>,<span class="at">conf.int=</span><span class="cn">FALSE</span>,<span class="at">lty=</span><span class="dv">1</span>,<span class="at">mark.time=</span><span class="cn">FALSE</span>)</span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>nd <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">Xbeta=</span><span class="fu">sd</span>(Xbeta))</span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>sf <span class="ot">&lt;-</span> <span class="fu">survfit</span>(cXbeta,<span class="at">newdata=</span>nd)</span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a><span class="fu">lines</span>(sf,<span class="at">lwd=</span><span class="dv">2</span>,<span class="at">conf.int=</span><span class="cn">FALSE</span>,<span class="at">lty=</span><span class="dv">4</span>,<span class="at">mark.time=</span><span class="cn">FALSE</span>)</span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>nd <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">Xbeta=</span><span class="dv">2</span><span class="sc">*</span><span class="fu">sd</span>(Xbeta))</span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>sf <span class="ot">&lt;-</span> <span class="fu">survfit</span>(cXbeta,<span class="at">newdata=</span>nd)</span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a><span class="fu">lines</span>(sf,<span class="at">lwd=</span><span class="dv">2</span>,<span class="at">conf.int=</span><span class="cn">FALSE</span>,<span class="at">lty=</span><span class="dv">5</span>,<span class="at">mark.time=</span><span class="cn">FALSE</span>)</span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a><span class="fu">legend</span>(<span class="st">"topright"</span>,<span class="fu">c</span>(<span class="st">"Mean-2sd"</span>,<span class="st">"Mean-sd"</span>,<span class="st">"Mean"</span>,<span class="st">"Mean+sd"</span>,<span class="st">"Mean+2sd"</span>),<span class="at">lwd=</span><span class="dv">2</span>,<span class="at">col=</span><span class="fu">c</span>(<span class="dv">1</span>,<span class="dv">1</span>,<span class="dv">1</span>,<span class="dv">1</span>,<span class="dv">1</span>),<span class="at">lty=</span><span class="fu">c</span>(<span class="dv">2</span>,<span class="dv">3</span>,<span class="dv">1</span>,<span class="dv">4</span>,<span class="dv">5</span>),<span class="at">bty=</span><span class="st">"n"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</details>
+</div>
+</section>
+<section id="figure-3.2-censored-80-tolerance-intervals-for-different-values-of-the-prognostic-index" class="level2">
+<h2 class="anchored" data-anchor-id="figure-3.2-censored-80-tolerance-intervals-for-different-values-of-the-prognostic-index">Figure 3.2: (Censored) 80% tolerance intervals for different values of the prognostic index</h2>
+<div class="cell" data-hash="chapter_03_cache/html/fig3.2_6915262ddbb70e7159ad6989d12d95d4">
+<details open="">
+<summary>Code</summary>
+<div class="sourceCode cell-code" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="co"># This causes warnings when the right hand side of the tolerance interval</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="co"># cannot always be determined (see text book). These warnings can be safely</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="co"># ignored.</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>tmp <span class="ot">&lt;-</span> <span class="fu">toleranceplot</span>(<span class="fu">Surv</span>(tyears, d) <span class="sc">~</span> Karn <span class="sc">+</span> Broders <span class="sc">+</span> FIGO <span class="sc">+</span> Ascites <span class="sc">+</span> Diam,</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">data =</span> ova, <span class="at">horizon =</span> <span class="dv">8</span>, <span class="at">xlab =</span> <span class="st">"Prognostic index"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</details>
+</div>
+</section>
+<section id="the-rest-to-be-divided" class="level2">
+<h2 class="anchored" data-anchor-id="the-rest-to-be-divided">The rest (to be divided)</h2>
+<div class="cell" data-hash="chapter_03_cache/html/fig3.3_3c01978e9b340b65aee1b039c91d4d41">
+<details open="">
+<summary>Code</summary>
+<div class="sourceCode cell-code" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="do">###############################################################################</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="do">### Figure 3.3: Partly imputed survival time versus prognostic index</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="do">### (Royston scatterplot)</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="do">###############################################################################</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a><span class="co"># The imputations of the censored data are random; this seed exactly reproduces</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a><span class="co"># the results of the book, different seeds will give slightly different results</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">20100301</span>)</span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>tmp <span class="ot">&lt;-</span> <span class="fu">scatterplot</span>(<span class="fu">Surv</span>(tyears, d) <span class="sc">~</span> Karn <span class="sc">+</span> Broders <span class="sc">+</span> FIGO <span class="sc">+</span> Ascites <span class="sc">+</span> Diam,</span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">data =</span> ova, <span class="at">horizon =</span> <span class="dv">8</span>, <span class="at">xlab =</span> <span class="st">"Prognostic index"</span>)</span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a><span class="do">###############################################################################</span></span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a><span class="do">### Figure 3.4: AUC(t) for the Cox model of the ovarian cancer data</span></span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a><span class="do">###############################################################################</span></span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a><span class="fu">AUC</span>(<span class="fu">Surv</span>(tyears, d) <span class="sc">~</span> Karn <span class="sc">+</span> Broders <span class="sc">+</span> FIGO <span class="sc">+</span> Ascites <span class="sc">+</span> Diam, <span class="at">data =</span> ova)</span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a><span class="do">###############################################################################</span></span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a><span class="do">### Figure 3.5: Cw(t) with w = 2 for the Cox model of Table 3.1</span></span>
+<span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a><span class="do">###############################################################################</span></span>
+<span id="cb4-21"><a href="#cb4-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-22"><a href="#cb4-22" aria-hidden="true" tabindex="-1"></a>AUCw.ova <span class="ot">&lt;-</span> <span class="fu">AUCw</span>(<span class="fu">Surv</span>(tyears, d) <span class="sc">~</span> Karn <span class="sc">+</span> Broders <span class="sc">+</span> FIGO <span class="sc">+</span> Ascites <span class="sc">+</span> Diam,</span>
+<span id="cb4-23"><a href="#cb4-23" aria-hidden="true" tabindex="-1"></a>  <span class="at">data =</span> ova, <span class="at">width =</span> <span class="dv">2</span>)</span>
+<span id="cb4-24"><a href="#cb4-24" aria-hidden="true" tabindex="-1"></a>AUCw.ova <span class="ot">&lt;-</span> AUCw.ova[AUCw.ova<span class="sc">$</span>time<span class="sc">&lt;=</span><span class="dv">4</span>,]</span>
+<span id="cb4-25"><a href="#cb4-25" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(AUCw.ova<span class="sc">$</span>time,AUCw.ova<span class="sc">$</span>AUCw,<span class="at">type=</span><span class="st">"s"</span>,<span class="at">lwd=</span><span class="dv">2</span>,<span class="at">ylim=</span><span class="fu">c</span>(<span class="fl">0.5</span>,<span class="dv">1</span>),</span>
+<span id="cb4-26"><a href="#cb4-26" aria-hidden="true" tabindex="-1"></a>  <span class="at">xlab=</span><span class="st">"Time t (years)"</span>,<span class="at">ylab=</span><span class="st">"Dynamic C"</span>)</span>
+<span id="cb4-27"><a href="#cb4-27" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-28"><a href="#cb4-28" aria-hidden="true" tabindex="-1"></a><span class="do">###############################################################################</span></span>
+<span id="cb4-29"><a href="#cb4-29" aria-hidden="true" tabindex="-1"></a><span class="do">### Prediction error curves</span></span>
+<span id="cb4-30"><a href="#cb4-30" aria-hidden="true" tabindex="-1"></a><span class="do">###############################################################################</span></span>
+<span id="cb4-31"><a href="#cb4-31" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-32"><a href="#cb4-32" aria-hidden="true" tabindex="-1"></a><span class="co"># The function pecox from dynpred calculates these</span></span>
+<span id="cb4-33"><a href="#cb4-33" aria-hidden="true" tabindex="-1"></a><span class="co"># See the documentation for details</span></span>
+<span id="cb4-34"><a href="#cb4-34" aria-hidden="true" tabindex="-1"></a>ErrBrier1 <span class="ot">&lt;-</span> <span class="fu">pecox</span>(<span class="fu">Surv</span>(tyears, d) <span class="sc">~</span> Karn <span class="sc">+</span> Broders <span class="sc">+</span> FIGO <span class="sc">+</span> Ascites <span class="sc">+</span> Diam,</span>
+<span id="cb4-35"><a href="#cb4-35" aria-hidden="true" tabindex="-1"></a>  <span class="fu">Surv</span>(tyears, <span class="dv">1</span><span class="sc">-</span>d) <span class="sc">~</span> <span class="dv">1</span>, <span class="at">data =</span> ova, <span class="at">FUN =</span> <span class="st">"Brier"</span>)</span>
+<span id="cb4-36"><a href="#cb4-36" aria-hidden="true" tabindex="-1"></a>ErrBrier0 <span class="ot">&lt;-</span> <span class="fu">pecox</span>(<span class="fu">Surv</span>(tyears, d) <span class="sc">~</span> <span class="dv">1</span>,</span>
+<span id="cb4-37"><a href="#cb4-37" aria-hidden="true" tabindex="-1"></a>  <span class="fu">Surv</span>(tyears, <span class="dv">1</span><span class="sc">-</span>d) <span class="sc">~</span> <span class="dv">1</span>, <span class="at">data =</span> ova, <span class="at">FUN =</span> <span class="st">"Brier"</span>)</span>
+<span id="cb4-38"><a href="#cb4-38" aria-hidden="true" tabindex="-1"></a>ErrKL1 <span class="ot">&lt;-</span> <span class="fu">pecox</span>(<span class="fu">Surv</span>(tyears, d) <span class="sc">~</span> Karn <span class="sc">+</span> Broders <span class="sc">+</span> FIGO <span class="sc">+</span> Ascites <span class="sc">+</span> Diam,</span>
+<span id="cb4-39"><a href="#cb4-39" aria-hidden="true" tabindex="-1"></a>  <span class="fu">Surv</span>(tyears, <span class="dv">1</span><span class="sc">-</span>d) <span class="sc">~</span> <span class="dv">1</span>, <span class="at">data =</span> ova, <span class="at">FUN =</span> <span class="st">"KL"</span>)</span>
+<span id="cb4-40"><a href="#cb4-40" aria-hidden="true" tabindex="-1"></a>ErrKL0 <span class="ot">&lt;-</span> <span class="fu">pecox</span>(<span class="fu">Surv</span>(tyears, d) <span class="sc">~</span> <span class="dv">1</span>,</span>
+<span id="cb4-41"><a href="#cb4-41" aria-hidden="true" tabindex="-1"></a>  <span class="fu">Surv</span>(tyears, <span class="dv">1</span><span class="sc">-</span>d) <span class="sc">~</span> <span class="dv">1</span>, <span class="at">data =</span> ova, <span class="at">FUN =</span> <span class="st">"KL"</span>)</span>
+<span id="cb4-42"><a href="#cb4-42" aria-hidden="true" tabindex="-1"></a>ErrBrier <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">time=</span>ErrBrier1<span class="sc">$</span>time, <span class="at">Err0=</span>ErrBrier0<span class="sc">$</span>Err, <span class="at">Err1=</span>ErrBrier1<span class="sc">$</span>Err)</span>
+<span id="cb4-43"><a href="#cb4-43" aria-hidden="true" tabindex="-1"></a>ErrBrier<span class="sc">$</span>ErrRed <span class="ot">&lt;-</span> (ErrBrier<span class="sc">$</span>Err0<span class="sc">-</span>ErrBrier<span class="sc">$</span>Err1)<span class="sc">/</span>ErrBrier<span class="sc">$</span>Err0</span>
+<span id="cb4-44"><a href="#cb4-44" aria-hidden="true" tabindex="-1"></a>ErrKL <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">time=</span>ErrKL1<span class="sc">$</span>time, <span class="at">Err0=</span>ErrKL0<span class="sc">$</span>Err, <span class="at">Err1=</span>ErrKL1<span class="sc">$</span>Err)</span>
+<span id="cb4-45"><a href="#cb4-45" aria-hidden="true" tabindex="-1"></a>ErrKL<span class="sc">$</span>ErrRed <span class="ot">&lt;-</span> (ErrKL<span class="sc">$</span>Err0<span class="sc">-</span>ErrKL<span class="sc">$</span>Err1)<span class="sc">/</span>ErrKL<span class="sc">$</span>Err0</span>
+<span id="cb4-46"><a href="#cb4-46" aria-hidden="true" tabindex="-1"></a>ErrKL[<span class="dv">1</span>,<span class="dv">2</span><span class="sc">:</span><span class="dv">3</span>] <span class="ot">&lt;-</span> <span class="dv">0</span></span>
+<span id="cb4-47"><a href="#cb4-47" aria-hidden="true" tabindex="-1"></a>ErrBrier <span class="ot">&lt;-</span> <span class="fu">subset</span>(ErrBrier, time<span class="sc">&lt;=</span><span class="dv">6</span>)</span>
+<span id="cb4-48"><a href="#cb4-48" aria-hidden="true" tabindex="-1"></a>ErrKL <span class="ot">&lt;-</span> <span class="fu">subset</span>(ErrKL, time<span class="sc">&lt;=</span><span class="dv">6</span>)</span>
+<span id="cb4-49"><a href="#cb4-49" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-50"><a href="#cb4-50" aria-hidden="true" tabindex="-1"></a><span class="do">###############################################################################</span></span>
+<span id="cb4-51"><a href="#cb4-51" aria-hidden="true" tabindex="-1"></a><span class="do">### Figure 3.6: Prediction error curves</span></span>
+<span id="cb4-52"><a href="#cb4-52" aria-hidden="true" tabindex="-1"></a><span class="do">###############################################################################</span></span>
+<span id="cb4-53"><a href="#cb4-53" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-54"><a href="#cb4-54" aria-hidden="true" tabindex="-1"></a><span class="do">### Note: small differences with the plots in the book are possible for</span></span>
+<span id="cb4-55"><a href="#cb4-55" aria-hidden="true" tabindex="-1"></a><span class="do">### two reasons. First because by default the prediction error functions</span></span>
+<span id="cb4-56"><a href="#cb4-56" aria-hidden="true" tabindex="-1"></a><span class="do">### in dynpred are calculated at event AND censoring time points, while</span></span>
+<span id="cb4-57"><a href="#cb4-57" aria-hidden="true" tabindex="-1"></a><span class="do">### those in the book were calculated only at the event time points. The</span></span>
+<span id="cb4-58"><a href="#cb4-58" aria-hidden="true" tabindex="-1"></a><span class="do">### second reason is that the (dynamic) prediction error functions use</span></span>
+<span id="cb4-59"><a href="#cb4-59" aria-hidden="true" tabindex="-1"></a><span class="do">### slightly different censoring estimates than those used in the book.</span></span>
+<span id="cb4-60"><a href="#cb4-60" aria-hidden="true" tabindex="-1"></a><span class="do">### Especially at the end of follow-up this might lead to visible differences.</span></span>
+<span id="cb4-61"><a href="#cb4-61" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-62"><a href="#cb4-62" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(ErrBrier<span class="sc">$</span>time,ErrBrier<span class="sc">$</span>Err1,<span class="at">type=</span><span class="st">"s"</span>,<span class="at">ylim=</span><span class="fu">c</span>(<span class="dv">0</span>,<span class="fu">max</span>(ErrKL[,<span class="fu">c</span>(<span class="st">"Err0"</span>,<span class="st">"Err1"</span>)])),</span>
+<span id="cb4-63"><a href="#cb4-63" aria-hidden="true" tabindex="-1"></a>    <span class="at">lwd=</span><span class="dv">2</span>,<span class="at">xlab=</span><span class="st">"Time (years)"</span>,<span class="at">ylab=</span><span class="st">"Prediction error"</span>)</span>
+<span id="cb4-64"><a href="#cb4-64" aria-hidden="true" tabindex="-1"></a><span class="fu">lines</span>(ErrBrier<span class="sc">$</span>time,ErrBrier<span class="sc">$</span>Err0,<span class="at">type=</span><span class="st">"s"</span>,<span class="at">lwd=</span><span class="dv">2</span>,<span class="at">lty=</span><span class="dv">2</span>)</span>
+<span id="cb4-65"><a href="#cb4-65" aria-hidden="true" tabindex="-1"></a><span class="fu">lines</span>(ErrKL<span class="sc">$</span>time,ErrKL<span class="sc">$</span>Err1,<span class="at">type=</span><span class="st">"s"</span>,<span class="at">lwd=</span><span class="dv">2</span>)</span>
+<span id="cb4-66"><a href="#cb4-66" aria-hidden="true" tabindex="-1"></a><span class="fu">lines</span>(ErrKL<span class="sc">$</span>time,ErrKL<span class="sc">$</span>Err0,<span class="at">type=</span><span class="st">"s"</span>,<span class="at">lwd=</span><span class="dv">2</span>,<span class="at">lty=</span><span class="dv">2</span>)</span>
+<span id="cb4-67"><a href="#cb4-67" aria-hidden="true" tabindex="-1"></a><span class="fu">legend</span>(<span class="st">"topright"</span>,<span class="fu">c</span>(<span class="st">"Null model (KM)"</span>,<span class="st">"Covariate model"</span>),<span class="at">lwd=</span><span class="dv">2</span>,<span class="at">lty=</span><span class="dv">2</span><span class="sc">:</span><span class="dv">1</span>,<span class="at">bty=</span><span class="st">"n"</span>)</span>
+<span id="cb4-68"><a href="#cb4-68" aria-hidden="true" tabindex="-1"></a><span class="fu">text</span>(<span class="dv">6</span>,<span class="fl">0.43</span>,<span class="st">"Kullback-Leibler"</span>,<span class="at">adj=</span><span class="dv">1</span>)</span>
+<span id="cb4-69"><a href="#cb4-69" aria-hidden="true" tabindex="-1"></a><span class="fu">text</span>(<span class="dv">6</span>,<span class="fl">0.20</span>,<span class="st">"Brier"</span>,<span class="at">adj=</span><span class="dv">1</span>)</span>
+<span id="cb4-70"><a href="#cb4-70" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-71"><a href="#cb4-71" aria-hidden="true" tabindex="-1"></a><span class="do">###############################################################################</span></span>
+<span id="cb4-72"><a href="#cb4-72" aria-hidden="true" tabindex="-1"></a><span class="do">### Figure 3.7: Relative error reduction curves</span></span>
+<span id="cb4-73"><a href="#cb4-73" aria-hidden="true" tabindex="-1"></a><span class="do">###############################################################################</span></span>
+<span id="cb4-74"><a href="#cb4-74" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-75"><a href="#cb4-75" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(ErrBrier<span class="sc">$</span>time,ErrBrier<span class="sc">$</span>ErrRed,<span class="at">type=</span><span class="st">"s"</span>,<span class="at">ylim=</span><span class="fu">range</span>(<span class="fu">c</span>(<span class="dv">0</span>,ErrBrier<span class="sc">$</span>ErrRed,ErrKL<span class="sc">$</span>ErrRed),<span class="at">na.rm=</span><span class="cn">TRUE</span>),<span class="at">lwd=</span><span class="dv">2</span>,<span class="at">col=</span><span class="dv">8</span>,</span>
+<span id="cb4-76"><a href="#cb4-76" aria-hidden="true" tabindex="-1"></a>    <span class="at">xlab=</span><span class="st">"Time (years)"</span>,<span class="at">ylab=</span><span class="st">"Prediction error reduction"</span>)</span>
+<span id="cb4-77"><a href="#cb4-77" aria-hidden="true" tabindex="-1"></a><span class="fu">lines</span>(ErrKL<span class="sc">$</span>time,ErrKL<span class="sc">$</span>ErrRed,<span class="at">type=</span><span class="st">"s"</span>,<span class="at">lwd=</span><span class="dv">2</span>)</span>
+<span id="cb4-78"><a href="#cb4-78" aria-hidden="true" tabindex="-1"></a><span class="fu">legend</span>(<span class="st">"topright"</span>,<span class="fu">c</span>(<span class="st">"Kullback-Leibler"</span>,<span class="st">"Brier"</span>),<span class="at">lwd=</span><span class="dv">2</span>,<span class="at">col=</span><span class="fu">c</span>(<span class="dv">1</span>,<span class="dv">8</span>),<span class="at">bty=</span><span class="st">"n"</span>)</span>
+<span id="cb4-79"><a href="#cb4-79" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-80"><a href="#cb4-80" aria-hidden="true" tabindex="-1"></a><span class="do">###############################################################################</span></span>
+<span id="cb4-81"><a href="#cb4-81" aria-hidden="true" tabindex="-1"></a><span class="do">### Figure 3.8: Dynamic prediction error curves (w = 2) for Kullback-Leibler</span></span>
+<span id="cb4-82"><a href="#cb4-82" aria-hidden="true" tabindex="-1"></a><span class="do">### and Brier scores</span></span>
+<span id="cb4-83"><a href="#cb4-83" aria-hidden="true" tabindex="-1"></a><span class="do">###############################################################################</span></span>
+<span id="cb4-84"><a href="#cb4-84" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-85"><a href="#cb4-85" aria-hidden="true" tabindex="-1"></a>dynpe1.KL <span class="ot">&lt;-</span> <span class="fu">pewcox</span>(<span class="fu">Surv</span>(tyears, d) <span class="sc">~</span> Karn <span class="sc">+</span> Broders <span class="sc">+</span> FIGO <span class="sc">+</span> Ascites <span class="sc">+</span> Diam,</span>
+<span id="cb4-86"><a href="#cb4-86" aria-hidden="true" tabindex="-1"></a>  <span class="fu">Surv</span>(tyears, <span class="dv">1</span><span class="sc">-</span>d) <span class="sc">~</span> <span class="dv">1</span>, <span class="at">data =</span> ova, <span class="at">width =</span> <span class="dv">2</span>, <span class="at">FUN =</span> <span class="st">"KL"</span>)</span>
+<span id="cb4-87"><a href="#cb4-87" aria-hidden="true" tabindex="-1"></a>dynpe0.KL <span class="ot">&lt;-</span> <span class="fu">pewcox</span>(<span class="fu">Surv</span>(tyears, d) <span class="sc">~</span> <span class="dv">1</span>,</span>
+<span id="cb4-88"><a href="#cb4-88" aria-hidden="true" tabindex="-1"></a>  <span class="fu">Surv</span>(tyears, <span class="dv">1</span><span class="sc">-</span>d) <span class="sc">~</span> <span class="dv">1</span>, <span class="at">data =</span> ova, <span class="at">width =</span> <span class="dv">2</span>, <span class="at">FUN =</span> <span class="st">"KL"</span>)</span>
+<span id="cb4-89"><a href="#cb4-89" aria-hidden="true" tabindex="-1"></a>dynpe1.Brier <span class="ot">&lt;-</span> <span class="fu">pewcox</span>(<span class="fu">Surv</span>(tyears, d) <span class="sc">~</span> Karn <span class="sc">+</span> Broders <span class="sc">+</span> FIGO <span class="sc">+</span> Ascites <span class="sc">+</span> Diam,</span>
+<span id="cb4-90"><a href="#cb4-90" aria-hidden="true" tabindex="-1"></a>  <span class="fu">Surv</span>(tyears, <span class="dv">1</span><span class="sc">-</span>d) <span class="sc">~</span> <span class="dv">1</span>, <span class="at">data =</span> ova, <span class="at">width =</span> <span class="dv">2</span>, <span class="at">FUN =</span> <span class="st">"Brier"</span>)</span>
+<span id="cb4-91"><a href="#cb4-91" aria-hidden="true" tabindex="-1"></a>dynpe0.Brier <span class="ot">&lt;-</span> <span class="fu">pewcox</span>(<span class="fu">Surv</span>(tyears, d) <span class="sc">~</span> <span class="dv">1</span>,</span>
+<span id="cb4-92"><a href="#cb4-92" aria-hidden="true" tabindex="-1"></a>  <span class="fu">Surv</span>(tyears, <span class="dv">1</span><span class="sc">-</span>d) <span class="sc">~</span> <span class="dv">1</span>, <span class="at">data =</span> ova, <span class="at">width =</span> <span class="dv">2</span>, <span class="at">FUN =</span> <span class="st">"Brier"</span>)</span>
+<span id="cb4-93"><a href="#cb4-93" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-94"><a href="#cb4-94" aria-hidden="true" tabindex="-1"></a>dynpe.Brier <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">time=</span>dynpe1.Brier<span class="sc">$</span>time, <span class="at">Err0=</span>dynpe0.Brier<span class="sc">$</span>Err, <span class="at">Err1=</span>dynpe1.Brier<span class="sc">$</span>Err)</span>
+<span id="cb4-95"><a href="#cb4-95" aria-hidden="true" tabindex="-1"></a>dynpe.Brier<span class="sc">$</span>ErrRed <span class="ot">&lt;-</span> (dynpe.Brier<span class="sc">$</span>Err0<span class="sc">-</span>dynpe.Brier<span class="sc">$</span>Err1)<span class="sc">/</span>dynpe.Brier<span class="sc">$</span>Err0</span>
+<span id="cb4-96"><a href="#cb4-96" aria-hidden="true" tabindex="-1"></a>dynpe.KL <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">time=</span>dynpe1.KL<span class="sc">$</span>time, <span class="at">Err0=</span>dynpe0.KL<span class="sc">$</span>Err, <span class="at">Err1=</span>dynpe1.KL<span class="sc">$</span>Err)</span>
+<span id="cb4-97"><a href="#cb4-97" aria-hidden="true" tabindex="-1"></a>dynpe.KL<span class="sc">$</span>ErrRed <span class="ot">&lt;-</span> (dynpe.KL<span class="sc">$</span>Err0<span class="sc">-</span>dynpe.KL<span class="sc">$</span>Err1)<span class="sc">/</span>dynpe.KL<span class="sc">$</span>Err0</span>
+<span id="cb4-98"><a href="#cb4-98" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-99"><a href="#cb4-99" aria-hidden="true" tabindex="-1"></a><span class="co"># Cut off last part</span></span>
+<span id="cb4-100"><a href="#cb4-100" aria-hidden="true" tabindex="-1"></a>nt <span class="ot">&lt;-</span> <span class="fu">length</span>(dynpe.Brier<span class="sc">$</span>time)</span>
+<span id="cb4-101"><a href="#cb4-101" aria-hidden="true" tabindex="-1"></a>dynpe.Brier <span class="ot">&lt;-</span> <span class="fu">subset</span>(dynpe.Brier,time<span class="sc">&lt;=</span><span class="fl">5.25</span>)</span>
+<span id="cb4-102"><a href="#cb4-102" aria-hidden="true" tabindex="-1"></a>dynpe.KL <span class="ot">&lt;-</span> <span class="fu">subset</span>(dynpe.KL,time<span class="sc">&lt;=</span><span class="fl">5.25</span>)</span>
+<span id="cb4-103"><a href="#cb4-103" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-104"><a href="#cb4-104" aria-hidden="true" tabindex="-1"></a><span class="do">###############################################################################</span></span>
+<span id="cb4-105"><a href="#cb4-105" aria-hidden="true" tabindex="-1"></a><span class="do">### Figure 3.8, left panel</span></span>
+<span id="cb4-106"><a href="#cb4-106" aria-hidden="true" tabindex="-1"></a><span class="do">###############################################################################</span></span>
+<span id="cb4-107"><a href="#cb4-107" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-108"><a href="#cb4-108" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(dynpe.Brier<span class="sc">$</span>time,dynpe.Brier<span class="sc">$</span>Err1,<span class="at">type=</span><span class="st">"s"</span>,<span class="at">xlim=</span><span class="fu">c</span>(<span class="dv">0</span>,<span class="fl">5.25</span>),<span class="at">ylim=</span><span class="fu">c</span>(<span class="dv">0</span>,<span class="fu">max</span>(<span class="fu">cbind</span>(dynpe.Brier[,<span class="fu">c</span>(<span class="st">"Err0"</span>,<span class="st">"Err1"</span>)],dynpe.KL[,<span class="fu">c</span>(<span class="st">"Err0"</span>,<span class="st">"Err1"</span>)]))),</span>
+<span id="cb4-109"><a href="#cb4-109" aria-hidden="true" tabindex="-1"></a>    <span class="at">lwd=</span><span class="dv">2</span>,<span class="at">xlab=</span><span class="st">"Time (years)"</span>,<span class="at">ylab=</span><span class="st">"Prediction error"</span>)</span>
+<span id="cb4-110"><a href="#cb4-110" aria-hidden="true" tabindex="-1"></a><span class="fu">lines</span>(dynpe.Brier<span class="sc">$</span>time,dynpe.Brier<span class="sc">$</span>Err0,<span class="at">type=</span><span class="st">"s"</span>,<span class="at">lwd=</span><span class="dv">2</span>,<span class="at">lty=</span><span class="dv">2</span>)</span>
+<span id="cb4-111"><a href="#cb4-111" aria-hidden="true" tabindex="-1"></a><span class="fu">lines</span>(dynpe.KL<span class="sc">$</span>time,dynpe.KL<span class="sc">$</span>Err1,<span class="at">type=</span><span class="st">"s"</span>,<span class="at">lwd=</span><span class="dv">2</span>)</span>
+<span id="cb4-112"><a href="#cb4-112" aria-hidden="true" tabindex="-1"></a><span class="fu">lines</span>(dynpe.KL<span class="sc">$</span>time,dynpe.KL<span class="sc">$</span>Err0,<span class="at">type=</span><span class="st">"s"</span>,<span class="at">lwd=</span><span class="dv">2</span>,<span class="at">lty=</span><span class="dv">2</span>)</span>
+<span id="cb4-113"><a href="#cb4-113" aria-hidden="true" tabindex="-1"></a><span class="fu">legend</span>(<span class="st">"topright"</span>,<span class="fu">c</span>(<span class="st">"Null model (KM)"</span>,<span class="st">"Covariate model"</span>),<span class="at">lwd=</span><span class="dv">2</span>,<span class="at">lty=</span><span class="dv">2</span><span class="sc">:</span><span class="dv">1</span>,<span class="at">bty=</span><span class="st">"n"</span>)</span>
+<span id="cb4-114"><a href="#cb4-114" aria-hidden="true" tabindex="-1"></a><span class="fu">text</span>(<span class="fl">5.4</span>,<span class="fl">0.6</span>,<span class="st">"Kullback-Leibler"</span>,<span class="at">adj=</span><span class="dv">1</span>)</span>
+<span id="cb4-115"><a href="#cb4-115" aria-hidden="true" tabindex="-1"></a><span class="fu">text</span>(<span class="fl">5.4</span>,<span class="fl">0.12</span>,<span class="st">"Brier"</span>,<span class="at">adj=</span><span class="dv">1</span>)</span>
+<span id="cb4-116"><a href="#cb4-116" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-117"><a href="#cb4-117" aria-hidden="true" tabindex="-1"></a><span class="do">###############################################################################</span></span>
+<span id="cb4-118"><a href="#cb4-118" aria-hidden="true" tabindex="-1"></a><span class="do">### Figure 3.8, right panel</span></span>
+<span id="cb4-119"><a href="#cb4-119" aria-hidden="true" tabindex="-1"></a><span class="do">###############################################################################</span></span>
+<span id="cb4-120"><a href="#cb4-120" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-121"><a href="#cb4-121" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(dynpe.Brier<span class="sc">$</span>time,dynpe.Brier<span class="sc">$</span>ErrRed,<span class="at">type=</span><span class="st">"s"</span>,<span class="at">xlim=</span><span class="fu">range</span>(dynpe.KL<span class="sc">$</span>time),</span>
+<span id="cb4-122"><a href="#cb4-122" aria-hidden="true" tabindex="-1"></a>  <span class="at">ylim=</span><span class="fu">range</span>(<span class="fu">c</span>(dynpe.Brier<span class="sc">$</span>ErrRed,dynpe.KL<span class="sc">$</span>ErrRed)),<span class="at">lwd=</span><span class="dv">2</span>,<span class="at">col=</span><span class="dv">8</span>,</span>
+<span id="cb4-123"><a href="#cb4-123" aria-hidden="true" tabindex="-1"></a>  <span class="at">xlab=</span><span class="st">"Time (years)"</span>,<span class="at">ylab=</span><span class="st">"Prediction error reduction"</span>)</span>
+<span id="cb4-124"><a href="#cb4-124" aria-hidden="true" tabindex="-1"></a><span class="fu">lines</span>(dynpe.KL<span class="sc">$</span>time,dynpe.KL<span class="sc">$</span>ErrRed,<span class="at">type=</span><span class="st">"s"</span>,<span class="at">lwd=</span><span class="dv">2</span>)</span>
+<span id="cb4-125"><a href="#cb4-125" aria-hidden="true" tabindex="-1"></a><span class="fu">legend</span>(<span class="st">"topright"</span>,<span class="fu">c</span>(<span class="st">"Kullback-Leibler"</span>,<span class="st">"Brier"</span>),<span class="at">lwd=</span><span class="dv">2</span>,<span class="at">col=</span><span class="fu">c</span>(<span class="dv">1</span>,<span class="dv">8</span>),<span class="at">bty=</span><span class="st">"n"</span>)</span>
+<span id="cb4-126"><a href="#cb4-126" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-127"><a href="#cb4-127" aria-hidden="true" tabindex="-1"></a><span class="do">###############################################################################</span></span>
+<span id="cb4-128"><a href="#cb4-128" aria-hidden="true" tabindex="-1"></a><span class="do">### Table 3.2: Interval-specific and total prediction errors</span></span>
+<span id="cb4-129"><a href="#cb4-129" aria-hidden="true" tabindex="-1"></a><span class="do">###############################################################################</span></span>
+<span id="cb4-130"><a href="#cb4-130" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-131"><a href="#cb4-131" aria-hidden="true" tabindex="-1"></a>dynpe1.KL1 <span class="ot">&lt;-</span> <span class="fu">pewcox</span>(<span class="fu">Surv</span>(tyears, d) <span class="sc">~</span> Karn <span class="sc">+</span> Broders <span class="sc">+</span> FIGO <span class="sc">+</span> Ascites <span class="sc">+</span> Diam,</span>
+<span id="cb4-132"><a href="#cb4-132" aria-hidden="true" tabindex="-1"></a>  <span class="fu">Surv</span>(tyears, <span class="dv">1</span><span class="sc">-</span>d) <span class="sc">~</span> <span class="dv">1</span>, <span class="at">data =</span> ova, <span class="at">width =</span> <span class="dv">1</span>, <span class="at">FUN =</span> <span class="st">"KL"</span>)</span>
+<span id="cb4-133"><a href="#cb4-133" aria-hidden="true" tabindex="-1"></a>dynpe0.KL1 <span class="ot">&lt;-</span> <span class="fu">pewcox</span>(<span class="fu">Surv</span>(tyears, d) <span class="sc">~</span> <span class="dv">1</span>,</span>
+<span id="cb4-134"><a href="#cb4-134" aria-hidden="true" tabindex="-1"></a>  <span class="fu">Surv</span>(tyears, <span class="dv">1</span><span class="sc">-</span>d) <span class="sc">~</span> <span class="dv">1</span>, <span class="at">data =</span> ova, <span class="at">width =</span> <span class="dv">1</span>, <span class="at">FUN =</span> <span class="st">"KL"</span>)</span>
+<span id="cb4-135"><a href="#cb4-135" aria-hidden="true" tabindex="-1"></a>dynpe1.Brier1 <span class="ot">&lt;-</span> <span class="fu">pewcox</span>(<span class="fu">Surv</span>(tyears, d) <span class="sc">~</span> Karn <span class="sc">+</span> Broders <span class="sc">+</span> FIGO <span class="sc">+</span> Ascites <span class="sc">+</span> Diam,</span>
+<span id="cb4-136"><a href="#cb4-136" aria-hidden="true" tabindex="-1"></a>  <span class="fu">Surv</span>(tyears, <span class="dv">1</span><span class="sc">-</span>d) <span class="sc">~</span> <span class="dv">1</span>, <span class="at">data =</span> ova, <span class="at">width =</span> <span class="dv">1</span>, <span class="at">FUN =</span> <span class="st">"Brier"</span>)</span>
+<span id="cb4-137"><a href="#cb4-137" aria-hidden="true" tabindex="-1"></a>dynpe0.Brier1 <span class="ot">&lt;-</span> <span class="fu">pewcox</span>(<span class="fu">Surv</span>(tyears, d) <span class="sc">~</span> <span class="dv">1</span>,</span>
+<span id="cb4-138"><a href="#cb4-138" aria-hidden="true" tabindex="-1"></a>  <span class="fu">Surv</span>(tyears, <span class="dv">1</span><span class="sc">-</span>d) <span class="sc">~</span> <span class="dv">1</span>, <span class="at">data =</span> ova, <span class="at">width =</span> <span class="dv">1</span>, <span class="at">FUN =</span> <span class="st">"Brier"</span>)</span>
+<span id="cb4-139"><a href="#cb4-139" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-140"><a href="#cb4-140" aria-hidden="true" tabindex="-1"></a>dynpe.Brier1 <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">time=</span>dynpe1.Brier1<span class="sc">$</span>time, <span class="at">Err0=</span>dynpe0.Brier1<span class="sc">$</span>Err, <span class="at">Err1=</span>dynpe1.Brier1<span class="sc">$</span>Err)</span>
+<span id="cb4-141"><a href="#cb4-141" aria-hidden="true" tabindex="-1"></a>dynpe.Brier1<span class="sc">$</span>ErrRed <span class="ot">&lt;-</span> (dynpe.Brier1<span class="sc">$</span>Err0<span class="sc">-</span>dynpe.Brier1<span class="sc">$</span>Err1)<span class="sc">/</span>dynpe.Brier1<span class="sc">$</span>Err0</span>
+<span id="cb4-142"><a href="#cb4-142" aria-hidden="true" tabindex="-1"></a>dynpe.KL1 <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">time=</span>dynpe1.KL1<span class="sc">$</span>time, <span class="at">Err0=</span>dynpe0.KL1<span class="sc">$</span>Err, <span class="at">Err1=</span>dynpe1.KL1<span class="sc">$</span>Err)</span>
+<span id="cb4-143"><a href="#cb4-143" aria-hidden="true" tabindex="-1"></a>dynpe.KL1<span class="sc">$</span>ErrRed <span class="ot">&lt;-</span> (dynpe.KL1<span class="sc">$</span>Err0<span class="sc">-</span>dynpe.KL1<span class="sc">$</span>Err1)<span class="sc">/</span>dynpe.KL1<span class="sc">$</span>Err0</span>
+<span id="cb4-144"><a href="#cb4-144" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-145"><a href="#cb4-145" aria-hidden="true" tabindex="-1"></a>ova.km <span class="ot">&lt;-</span> <span class="fu">survfit</span>(<span class="at">formula =</span> <span class="fu">Surv</span>(tyears, d) <span class="sc">~</span> <span class="dv">1</span>, <span class="at">data =</span> ova)</span>
+<span id="cb4-146"><a href="#cb4-146" aria-hidden="true" tabindex="-1"></a>KMstart <span class="ot">&lt;-</span> <span class="fu">evalstep</span>(ova.km<span class="sc">$</span>time,ova.km<span class="sc">$</span>surv,<span class="dv">0</span><span class="sc">:</span><span class="dv">6</span>,<span class="at">subst=</span><span class="dv">1</span>)</span>
+<span id="cb4-147"><a href="#cb4-147" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-148"><a href="#cb4-148" aria-hidden="true" tabindex="-1"></a>res <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">Interval=</span><span class="fu">c</span>(<span class="st">"0-1"</span>,<span class="st">"1-2"</span>,<span class="st">"2-3"</span>,<span class="st">"3-4"</span>,<span class="st">"4-5"</span>,<span class="st">"5-6"</span>),</span>
+<span id="cb4-149"><a href="#cb4-149" aria-hidden="true" tabindex="-1"></a>  <span class="at">KMstart=</span>KMstart[<span class="dv">1</span><span class="sc">:</span><span class="dv">6</span>],</span>
+<span id="cb4-150"><a href="#cb4-150" aria-hidden="true" tabindex="-1"></a>  <span class="at">Hazard=</span><span class="cn">NA</span>,</span>
+<span id="cb4-151"><a href="#cb4-151" aria-hidden="true" tabindex="-1"></a>  <span class="at">BrierKM=</span><span class="fu">c</span>(dynpe.Brier1<span class="sc">$</span>Err0[<span class="dv">1</span>],<span class="fu">evalstep</span>(dynpe.Brier1<span class="sc">$</span>time,dynpe.Brier1<span class="sc">$</span>Err0,<span class="dv">1</span><span class="sc">:</span><span class="dv">5</span>)),</span>
+<span id="cb4-152"><a href="#cb4-152" aria-hidden="true" tabindex="-1"></a>  <span class="at">BrierModel=</span><span class="fu">c</span>(dynpe.Brier1<span class="sc">$</span>Err1[<span class="dv">1</span>],<span class="fu">evalstep</span>(dynpe.Brier1<span class="sc">$</span>time,dynpe.Brier1<span class="sc">$</span>Err1,<span class="dv">1</span><span class="sc">:</span><span class="dv">5</span>)),</span>
+<span id="cb4-153"><a href="#cb4-153" aria-hidden="true" tabindex="-1"></a>  <span class="at">BrierRed=</span><span class="fu">c</span>(dynpe.Brier1<span class="sc">$</span>ErrRed[<span class="dv">1</span>],<span class="fu">evalstep</span>(dynpe.Brier1<span class="sc">$</span>time,dynpe.Brier1<span class="sc">$</span>ErrRed,<span class="dv">1</span><span class="sc">:</span><span class="dv">5</span>)),</span>
+<span id="cb4-154"><a href="#cb4-154" aria-hidden="true" tabindex="-1"></a>  <span class="at">KLKM=</span><span class="fu">c</span>(dynpe.KL1<span class="sc">$</span>Err0[<span class="dv">1</span>],<span class="fu">evalstep</span>(dynpe.KL1<span class="sc">$</span>time,dynpe.KL1<span class="sc">$</span>Err0,<span class="dv">1</span><span class="sc">:</span><span class="dv">5</span>)),</span>
+<span id="cb4-155"><a href="#cb4-155" aria-hidden="true" tabindex="-1"></a>  <span class="at">KLModel=</span><span class="fu">c</span>(dynpe.KL1<span class="sc">$</span>Err1[<span class="dv">1</span>],<span class="fu">evalstep</span>(dynpe.KL1<span class="sc">$</span>time,dynpe.KL1<span class="sc">$</span>Err1,<span class="dv">1</span><span class="sc">:</span><span class="dv">5</span>)),</span>
+<span id="cb4-156"><a href="#cb4-156" aria-hidden="true" tabindex="-1"></a>  <span class="at">KLRed=</span><span class="fu">c</span>(dynpe.KL1<span class="sc">$</span>ErrRed[<span class="dv">1</span>],<span class="fu">evalstep</span>(dynpe.KL1<span class="sc">$</span>time,dynpe.KL1<span class="sc">$</span>ErrRed,<span class="dv">1</span><span class="sc">:</span><span class="dv">5</span>)))</span>
+<span id="cb4-157"><a href="#cb4-157" aria-hidden="true" tabindex="-1"></a>res<span class="sc">$</span>Hazard <span class="ot">&lt;-</span> <span class="dv">1</span> <span class="sc">-</span> KMstart[<span class="sc">-</span><span class="dv">1</span>]<span class="sc">/</span>KMstart[<span class="sc">-</span><span class="dv">7</span>]</span>
+<span id="cb4-158"><a href="#cb4-158" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-159"><a href="#cb4-159" aria-hidden="true" tabindex="-1"></a><span class="co"># Append totals</span></span>
+<span id="cb4-160"><a href="#cb4-160" aria-hidden="true" tabindex="-1"></a>res <span class="ot">&lt;-</span> <span class="fu">rbind</span>(res,<span class="fu">data.frame</span>(<span class="at">Interval=</span><span class="st">"Total"</span>,<span class="at">KMstart=</span><span class="cn">NA</span>,<span class="at">Hazard=</span><span class="cn">NA</span>,</span>
+<span id="cb4-161"><a href="#cb4-161" aria-hidden="true" tabindex="-1"></a>            <span class="at">BrierKM=</span><span class="fu">sum</span>(res<span class="sc">$</span>KMstart<span class="sc">*</span>res<span class="sc">$</span>BrierKM),</span>
+<span id="cb4-162"><a href="#cb4-162" aria-hidden="true" tabindex="-1"></a>            <span class="at">BrierModel=</span><span class="fu">sum</span>(res<span class="sc">$</span>KMstart<span class="sc">*</span>res<span class="sc">$</span>BrierModel),</span>
+<span id="cb4-163"><a href="#cb4-163" aria-hidden="true" tabindex="-1"></a>            <span class="at">BrierRed=</span><span class="dv">1</span><span class="sc">-</span><span class="fu">sum</span>(res<span class="sc">$</span>KMstart<span class="sc">*</span>res<span class="sc">$</span>BrierModel)<span class="sc">/</span><span class="fu">sum</span>(res<span class="sc">$</span>KMstart<span class="sc">*</span>res<span class="sc">$</span>BrierKM),</span>
+<span id="cb4-164"><a href="#cb4-164" aria-hidden="true" tabindex="-1"></a>            <span class="at">KLKM=</span><span class="fu">sum</span>(res<span class="sc">$</span>KMstart<span class="sc">*</span>res<span class="sc">$</span>KLKM),</span>
+<span id="cb4-165"><a href="#cb4-165" aria-hidden="true" tabindex="-1"></a>            <span class="at">KLModel=</span><span class="fu">sum</span>(res<span class="sc">$</span>KMstart<span class="sc">*</span>res<span class="sc">$</span>KLModel),</span>
+<span id="cb4-166"><a href="#cb4-166" aria-hidden="true" tabindex="-1"></a>            <span class="at">KLRed=</span><span class="dv">1</span><span class="sc">-</span><span class="fu">sum</span>(res<span class="sc">$</span>KMstart<span class="sc">*</span>res<span class="sc">$</span>KLModel)<span class="sc">/</span><span class="fu">sum</span>(res<span class="sc">$</span>KMstart<span class="sc">*</span>res<span class="sc">$</span>KLKM)))</span>
+<span id="cb4-167"><a href="#cb4-167" aria-hidden="true" tabindex="-1"></a>res</span>
+<span id="cb4-168"><a href="#cb4-168" aria-hidden="true" tabindex="-1"></a><span class="co"># For book, round to three decimals</span></span>
+<span id="cb4-169"><a href="#cb4-169" aria-hidden="true" tabindex="-1"></a>res[,<span class="dv">2</span><span class="sc">:</span><span class="dv">9</span>] <span class="ot">&lt;-</span> <span class="fu">round</span>(res[,<span class="dv">2</span><span class="sc">:</span><span class="dv">9</span>],<span class="dv">3</span>)</span>
+<span id="cb4-170"><a href="#cb4-170" aria-hidden="true" tabindex="-1"></a>res</span>
+<span id="cb4-171"><a href="#cb4-171" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-172"><a href="#cb4-172" aria-hidden="true" tabindex="-1"></a><span class="do">###############################################################################</span></span>
+<span id="cb4-173"><a href="#cb4-173" aria-hidden="true" tabindex="-1"></a><span class="do">### Cross-validated C-index</span></span>
+<span id="cb4-174"><a href="#cb4-174" aria-hidden="true" tabindex="-1"></a><span class="do">###############################################################################</span></span>
+<span id="cb4-175"><a href="#cb4-175" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-176"><a href="#cb4-176" aria-hidden="true" tabindex="-1"></a><span class="fu">date</span>()</span>
+<span id="cb4-177"><a href="#cb4-177" aria-hidden="true" tabindex="-1"></a><span class="fu">CVcindex</span>(<span class="fu">Surv</span>(tyears,d) <span class="sc">~</span> Karn <span class="sc">+</span> Broders <span class="sc">+</span> FIGO <span class="sc">+</span> Ascites <span class="sc">+</span> Diam, <span class="at">data =</span> ova)</span>
+<span id="cb4-178"><a href="#cb4-178" aria-hidden="true" tabindex="-1"></a><span class="fu">date</span>()</span>
+<span id="cb4-179"><a href="#cb4-179" aria-hidden="true" tabindex="-1"></a><span class="fu">CVcindex</span>(<span class="fu">Surv</span>(tyears,d) <span class="sc">~</span> Karn <span class="sc">+</span> Broders <span class="sc">+</span> FIGO <span class="sc">+</span> Ascites <span class="sc">+</span> Diam, <span class="at">data =</span> ova, <span class="at">type=</span><span class="st">"pair"</span>)</span>
+<span id="cb4-180"><a href="#cb4-180" aria-hidden="true" tabindex="-1"></a><span class="fu">date</span>()</span>
+<span id="cb4-181"><a href="#cb4-181" aria-hidden="true" tabindex="-1"></a><span class="fu">CVcindex</span>(<span class="fu">Surv</span>(tyears,d) <span class="sc">~</span> Karn <span class="sc">+</span> Broders <span class="sc">+</span> FIGO <span class="sc">+</span> Ascites <span class="sc">+</span> Diam, <span class="at">data =</span> ova, <span class="at">type=</span><span class="st">"fullpairs"</span>)</span>
+<span id="cb4-182"><a href="#cb4-182" aria-hidden="true" tabindex="-1"></a><span class="fu">date</span>()</span>
+<span id="cb4-183"><a href="#cb4-183" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-184"><a href="#cb4-184" aria-hidden="true" tabindex="-1"></a><span class="do">###############################################################################</span></span>
+<span id="cb4-185"><a href="#cb4-185" aria-hidden="true" tabindex="-1"></a><span class="do">### Cross-validated prediction error curves</span></span>
+<span id="cb4-186"><a href="#cb4-186" aria-hidden="true" tabindex="-1"></a><span class="do">###############################################################################</span></span>
+<span id="cb4-187"><a href="#cb4-187" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-188"><a href="#cb4-188" aria-hidden="true" tabindex="-1"></a>ErrBrierCV <span class="ot">&lt;-</span> <span class="fu">pecox</span>(<span class="fu">Surv</span>(tyears, d) <span class="sc">~</span> Karn <span class="sc">+</span> Broders <span class="sc">+</span> FIGO <span class="sc">+</span> Ascites <span class="sc">+</span> Diam,</span>
+<span id="cb4-189"><a href="#cb4-189" aria-hidden="true" tabindex="-1"></a>  <span class="fu">Surv</span>(tyears, <span class="dv">1</span><span class="sc">-</span>d) <span class="sc">~</span> <span class="dv">1</span>, <span class="at">data =</span> ova, <span class="at">FUN=</span><span class="st">"Brier"</span>, <span class="at">CV=</span><span class="cn">TRUE</span>, <span class="at">progress=</span><span class="cn">TRUE</span>)</span>
+<span id="cb4-190"><a href="#cb4-190" aria-hidden="true" tabindex="-1"></a>ErrKLCV <span class="ot">&lt;-</span> <span class="fu">pecox</span>(<span class="fu">Surv</span>(tyears, d) <span class="sc">~</span> Karn <span class="sc">+</span> Broders <span class="sc">+</span> FIGO <span class="sc">+</span> Ascites <span class="sc">+</span> Diam,</span>
+<span id="cb4-191"><a href="#cb4-191" aria-hidden="true" tabindex="-1"></a>  <span class="fu">Surv</span>(tyears, <span class="dv">1</span><span class="sc">-</span>d) <span class="sc">~</span> <span class="dv">1</span>, <span class="at">data =</span> ova, <span class="at">FUN=</span><span class="st">"KL"</span>, <span class="at">CV=</span><span class="cn">TRUE</span>, <span class="at">progress=</span><span class="cn">TRUE</span>)</span>
+<span id="cb4-192"><a href="#cb4-192" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-193"><a href="#cb4-193" aria-hidden="true" tabindex="-1"></a><span class="do">### The following is copied from above, no need to run it if ErrBrier and ErrKL are known</span></span>
+<span id="cb4-194"><a href="#cb4-194" aria-hidden="true" tabindex="-1"></a><span class="co"># ErrBrier1 &lt;- pecox(Surv(tyears, d) ~ Karn + Broders + FIGO + Ascites + Diam,</span></span>
+<span id="cb4-195"><a href="#cb4-195" aria-hidden="true" tabindex="-1"></a><span class="co">#   Surv(tyears, 1-d) ~ 1, data = ova, FUN = "Brier")</span></span>
+<span id="cb4-196"><a href="#cb4-196" aria-hidden="true" tabindex="-1"></a><span class="co"># ErrBrier0 &lt;- pecox(Surv(tyears, d) ~ 1,</span></span>
+<span id="cb4-197"><a href="#cb4-197" aria-hidden="true" tabindex="-1"></a><span class="co">#   Surv(tyears, 1-d) ~ 1, data = ova, FUN = "Brier")</span></span>
+<span id="cb4-198"><a href="#cb4-198" aria-hidden="true" tabindex="-1"></a><span class="co"># ErrKL1 &lt;- pecox(Surv(tyears, d) ~ Karn + Broders + FIGO + Ascites + Diam,</span></span>
+<span id="cb4-199"><a href="#cb4-199" aria-hidden="true" tabindex="-1"></a><span class="co">#   Surv(tyears, 1-d) ~ 1, data = ova, FUN = "KL")</span></span>
+<span id="cb4-200"><a href="#cb4-200" aria-hidden="true" tabindex="-1"></a><span class="co"># ErrKL0 &lt;- pecox(Surv(tyears, d) ~ 1,</span></span>
+<span id="cb4-201"><a href="#cb4-201" aria-hidden="true" tabindex="-1"></a><span class="co">#   Surv(tyears, 1-d) ~ 1, data = ova, FUN = "KL")</span></span>
+<span id="cb4-202"><a href="#cb4-202" aria-hidden="true" tabindex="-1"></a><span class="co"># ErrBrier &lt;- data.frame(time=ErrBrier1$time, Err0=ErrBrier0$Err, Err1=ErrBrier1$Err)</span></span>
+<span id="cb4-203"><a href="#cb4-203" aria-hidden="true" tabindex="-1"></a><span class="co"># ErrBrier$ErrRed &lt;- (ErrBrier$Err0-ErrBrier$Err1)/ErrBrier$Err0</span></span>
+<span id="cb4-204"><a href="#cb4-204" aria-hidden="true" tabindex="-1"></a><span class="co"># ErrKL &lt;- data.frame(time=ErrKL1$time, Err0=ErrKL0$Err, Err1=ErrKL1$Err)</span></span>
+<span id="cb4-205"><a href="#cb4-205" aria-hidden="true" tabindex="-1"></a><span class="co"># ErrKL$ErrRed &lt;- (ErrKL$Err0-ErrKL$Err1)/ErrKL$Err0</span></span>
+<span id="cb4-206"><a href="#cb4-206" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-207"><a href="#cb4-207" aria-hidden="true" tabindex="-1"></a>ErrBrier1 <span class="ot">&lt;-</span> <span class="fu">subset</span>(ErrBrier1, time<span class="sc">&lt;=</span><span class="dv">6</span>)</span>
+<span id="cb4-208"><a href="#cb4-208" aria-hidden="true" tabindex="-1"></a>ErrBrier0 <span class="ot">&lt;-</span> <span class="fu">subset</span>(ErrBrier0, time<span class="sc">&lt;=</span><span class="dv">6</span>)</span>
+<span id="cb4-209"><a href="#cb4-209" aria-hidden="true" tabindex="-1"></a>ErrKL1 <span class="ot">&lt;-</span> <span class="fu">subset</span>(ErrKL1, time<span class="sc">&lt;=</span><span class="dv">6</span>)</span>
+<span id="cb4-210"><a href="#cb4-210" aria-hidden="true" tabindex="-1"></a>ErrKL0 <span class="ot">&lt;-</span> <span class="fu">subset</span>(ErrKL0, time<span class="sc">&lt;=</span><span class="dv">6</span>)</span>
+<span id="cb4-211"><a href="#cb4-211" aria-hidden="true" tabindex="-1"></a>ErrBrierCV <span class="ot">&lt;-</span> <span class="fu">subset</span>(ErrBrierCV, time<span class="sc">&lt;=</span><span class="dv">6</span>)</span>
+<span id="cb4-212"><a href="#cb4-212" aria-hidden="true" tabindex="-1"></a>ErrKLCV <span class="ot">&lt;-</span> <span class="fu">subset</span>(ErrKLCV, time<span class="sc">&lt;=</span><span class="dv">6</span>)</span>
+<span id="cb4-213"><a href="#cb4-213" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-214"><a href="#cb4-214" aria-hidden="true" tabindex="-1"></a><span class="do">###############################################################################</span></span>
+<span id="cb4-215"><a href="#cb4-215" aria-hidden="true" tabindex="-1"></a><span class="do">### Figure 3.9: Prediction errors with cross-validation</span></span>
+<span id="cb4-216"><a href="#cb4-216" aria-hidden="true" tabindex="-1"></a><span class="do">###############################################################################</span></span>
+<span id="cb4-217"><a href="#cb4-217" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-218"><a href="#cb4-218" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(ErrBrier1<span class="sc">$</span>time,ErrBrier1<span class="sc">$</span>Err,<span class="at">type=</span><span class="st">"s"</span>,<span class="at">xlim=</span><span class="fu">c</span>(<span class="dv">0</span>,<span class="dv">6</span>),<span class="at">ylim=</span><span class="fu">c</span>(<span class="dv">0</span>,<span class="fu">max</span>(<span class="fu">cbind</span>(ErrBrier[,<span class="fu">c</span>(<span class="st">"Err0"</span>,<span class="st">"Err1"</span>)],ErrKL[,<span class="fu">c</span>(<span class="st">"Err0"</span>,<span class="st">"Err1"</span>)]))<span class="sc">+</span><span class="fl">0.015</span>),</span>
+<span id="cb4-219"><a href="#cb4-219" aria-hidden="true" tabindex="-1"></a>    <span class="at">lwd=</span><span class="dv">2</span>,<span class="at">xlab=</span><span class="st">"Time (years)"</span>,<span class="at">ylab=</span><span class="st">"Prediction error"</span>)</span>
+<span id="cb4-220"><a href="#cb4-220" aria-hidden="true" tabindex="-1"></a><span class="fu">lines</span>(ErrBrierCV<span class="sc">$</span>time,ErrBrierCV<span class="sc">$</span>Err,<span class="at">type=</span><span class="st">"s"</span>,<span class="at">lwd=</span><span class="dv">2</span>,<span class="at">col=</span><span class="dv">8</span>)</span>
+<span id="cb4-221"><a href="#cb4-221" aria-hidden="true" tabindex="-1"></a><span class="fu">lines</span>(ErrBrier0<span class="sc">$</span>time,ErrBrier0<span class="sc">$</span>Err,<span class="at">type=</span><span class="st">"s"</span>,<span class="at">lwd=</span><span class="dv">2</span>,<span class="at">lty=</span><span class="dv">2</span>)</span>
+<span id="cb4-222"><a href="#cb4-222" aria-hidden="true" tabindex="-1"></a><span class="fu">lines</span>(ErrKL1<span class="sc">$</span>time,ErrKL1<span class="sc">$</span>Err,<span class="at">type=</span><span class="st">"s"</span>,<span class="at">lwd=</span><span class="dv">2</span>)</span>
+<span id="cb4-223"><a href="#cb4-223" aria-hidden="true" tabindex="-1"></a><span class="fu">lines</span>(ErrKLCV<span class="sc">$</span>time,ErrKLCV<span class="sc">$</span>Err,<span class="at">type=</span><span class="st">"s"</span>,<span class="at">lwd=</span><span class="dv">2</span>,<span class="at">col=</span><span class="dv">8</span>)</span>
+<span id="cb4-224"><a href="#cb4-224" aria-hidden="true" tabindex="-1"></a><span class="fu">lines</span>(ErrKL0<span class="sc">$</span>time,ErrKL0<span class="sc">$</span>Err,<span class="at">type=</span><span class="st">"s"</span>,<span class="at">lwd=</span><span class="dv">2</span>,<span class="at">lty=</span><span class="dv">2</span>)</span>
+<span id="cb4-225"><a href="#cb4-225" aria-hidden="true" tabindex="-1"></a><span class="fu">legend</span>(<span class="st">"topright"</span>,<span class="fu">c</span>(<span class="st">"Null model (KM)"</span>,<span class="st">"Covariate model (CV)"</span>,<span class="st">"Covariate model"</span>),<span class="at">lwd=</span><span class="dv">2</span>,<span class="at">lty=</span><span class="fu">c</span>(<span class="dv">2</span>,<span class="dv">1</span>,<span class="dv">1</span>),<span class="at">col=</span><span class="fu">c</span>(<span class="dv">1</span>,<span class="dv">8</span>,<span class="dv">1</span>),<span class="at">bty=</span><span class="st">"n"</span>)</span>
+<span id="cb4-226"><a href="#cb4-226" aria-hidden="true" tabindex="-1"></a><span class="fu">text</span>(<span class="dv">6</span>,<span class="fl">0.425</span>,<span class="st">"Kullback-Leibler"</span>,<span class="at">adj=</span><span class="dv">1</span>)</span>
+<span id="cb4-227"><a href="#cb4-227" aria-hidden="true" tabindex="-1"></a><span class="fu">text</span>(<span class="dv">6</span>,<span class="fl">0.20</span>,<span class="st">"Brier"</span>,<span class="at">adj=</span><span class="dv">1</span>)</span>
+<span id="cb4-228"><a href="#cb4-228" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-229"><a href="#cb4-229" aria-hidden="true" tabindex="-1"></a><span class="do">###############################################################################</span></span>
+<span id="cb4-230"><a href="#cb4-230" aria-hidden="true" tabindex="-1"></a><span class="do">### Table 3.3: Partial log-likelihoods with and without cross-validation</span></span>
+<span id="cb4-231"><a href="#cb4-231" aria-hidden="true" tabindex="-1"></a><span class="do">###############################################################################</span></span>
+<span id="cb4-232"><a href="#cb4-232" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-233"><a href="#cb4-233" aria-hidden="true" tabindex="-1"></a>cfull <span class="ot">&lt;-</span> <span class="fu">coxph</span>(<span class="fu">Surv</span>(tyears, d) <span class="sc">~</span> Karn <span class="sc">+</span> Broders <span class="sc">+</span> FIGO <span class="sc">+</span> Ascites <span class="sc">+</span> Diam,</span>
+<span id="cb4-234"><a href="#cb4-234" aria-hidden="true" tabindex="-1"></a>  <span class="at">data =</span> ova)</span>
+<span id="cb4-235"><a href="#cb4-235" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-236"><a href="#cb4-236" aria-hidden="true" tabindex="-1"></a>CVPLKM <span class="ot">&lt;-</span> <span class="fu">CVPL</span>(<span class="fu">Surv</span>(tyears, d) <span class="sc">~</span> <span class="dv">1</span>, <span class="at">data =</span> ova)</span>
+<span id="cb4-237"><a href="#cb4-237" aria-hidden="true" tabindex="-1"></a>CVPLCox <span class="ot">&lt;-</span> <span class="fu">CVPL</span>(<span class="fu">Surv</span>(tyears, d) <span class="sc">~</span> Karn <span class="sc">+</span> Broders <span class="sc">+</span> FIGO <span class="sc">+</span> Ascites <span class="sc">+</span> Diam,</span>
+<span id="cb4-238"><a href="#cb4-238" aria-hidden="true" tabindex="-1"></a>  <span class="at">data =</span> ova, <span class="at">overall=</span><span class="cn">TRUE</span>)</span>
+<span id="cb4-239"><a href="#cb4-239" aria-hidden="true" tabindex="-1"></a>CVPLCVCox <span class="ot">&lt;-</span> <span class="fu">CVPL</span>(<span class="fu">Surv</span>(tyears, d) <span class="sc">~</span> Karn <span class="sc">+</span> Broders <span class="sc">+</span> FIGO <span class="sc">+</span> Ascites <span class="sc">+</span> Diam,</span>
+<span id="cb4-240"><a href="#cb4-240" aria-hidden="true" tabindex="-1"></a>  <span class="at">data =</span> ova)</span>
+<span id="cb4-241"><a href="#cb4-241" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-242"><a href="#cb4-242" aria-hidden="true" tabindex="-1"></a>cfull<span class="sc">$</span>loglik</span>
+<span id="cb4-243"><a href="#cb4-243" aria-hidden="true" tabindex="-1"></a><span class="fu">diff</span>(cfull<span class="sc">$</span>loglik)</span>
+<span id="cb4-244"><a href="#cb4-244" aria-hidden="true" tabindex="-1"></a>CVPLKM</span>
+<span id="cb4-245"><a href="#cb4-245" aria-hidden="true" tabindex="-1"></a>CVPLCox</span>
+<span id="cb4-246"><a href="#cb4-246" aria-hidden="true" tabindex="-1"></a>CVPLCVCox</span>
+<span id="cb4-247"><a href="#cb4-247" aria-hidden="true" tabindex="-1"></a>CVPLCox <span class="sc">-</span> CVPLKM</span>
+<span id="cb4-248"><a href="#cb4-248" aria-hidden="true" tabindex="-1"></a>CVPLCVCox <span class="sc">-</span> CVPLKM</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</details>
+</div>
+
+
+</section>
+
+</main> <!-- /main -->
+<script id="quarto-html-after-body" type="application/javascript">
+window.document.addEventListener("DOMContentLoaded", function (event) {
+  const toggleBodyColorMode = (bsSheetEl) => {
+    const mode = bsSheetEl.getAttribute("data-mode");
+    const bodyEl = window.document.querySelector("body");
+    if (mode === "dark") {
+      bodyEl.classList.add("quarto-dark");
+      bodyEl.classList.remove("quarto-light");
+    } else {
+      bodyEl.classList.add("quarto-light");
+      bodyEl.classList.remove("quarto-dark");
+    }
+  }
+  const toggleBodyColorPrimary = () => {
+    const bsSheetEl = window.document.querySelector("link#quarto-bootstrap");
+    if (bsSheetEl) {
+      toggleBodyColorMode(bsSheetEl);
+    }
+  }
+  toggleBodyColorPrimary();  
+  const icon = "";
+  const anchorJS = new window.AnchorJS();
+  anchorJS.options = {
+    placement: 'right',
+    icon: icon
+  };
+  anchorJS.add('.anchored');
+  const isCodeAnnotation = (el) => {
+    for (const clz of el.classList) {
+      if (clz.startsWith('code-annotation-')) {                     
+        return true;
+      }
+    }
+    return false;
+  }
+  const clipboard = new window.ClipboardJS('.code-copy-button', {
+    text: function(trigger) {
+      const codeEl = trigger.previousElementSibling.cloneNode(true);
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+  });
+  clipboard.on('success', function(e) {
+    // button target
+    const button = e.trigger;
+    // don't keep focus
+    button.blur();
+    // flash "checked"
+    button.classList.add('code-copy-button-checked');
+    var currentTitle = button.getAttribute("title");
+    button.setAttribute("title", "Copied!");
+    let tooltip;
+    if (window.bootstrap) {
+      button.setAttribute("data-bs-toggle", "tooltip");
+      button.setAttribute("data-bs-placement", "left");
+      button.setAttribute("data-bs-title", "Copied!");
+      tooltip = new bootstrap.Tooltip(button, 
+        { trigger: "manual", 
+          customClass: "code-copy-button-tooltip",
+          offset: [0, -8]});
+      tooltip.show();    
+    }
+    setTimeout(function() {
+      if (tooltip) {
+        tooltip.hide();
+        button.removeAttribute("data-bs-title");
+        button.removeAttribute("data-bs-toggle");
+        button.removeAttribute("data-bs-placement");
+      }
+      button.setAttribute("title", currentTitle);
+      button.classList.remove('code-copy-button-checked');
+    }, 1000);
+    // clear code selection
+    e.clearSelection();
+  });
+  const viewSource = window.document.getElementById('quarto-view-source') ||
+                     window.document.getElementById('quarto-code-tools-source');
+  if (viewSource) {
+    const sourceUrl = viewSource.getAttribute("data-quarto-source-url");
+    viewSource.addEventListener("click", function(e) {
+      if (sourceUrl) {
+        // rstudio viewer pane
+        if (/\bcapabilities=\b/.test(window.location)) {
+          window.open(sourceUrl);
+        } else {
+          window.location.href = sourceUrl;
+        }
+      } else {
+        const modal = new bootstrap.Modal(document.getElementById('quarto-embedded-source-code-modal'));
+        modal.show();
+      }
+      return false;
+    });
+  }
+  function toggleCodeHandler(show) {
+    return function(e) {
+      const detailsSrc = window.document.querySelectorAll(".cell > details > .sourceCode");
+      for (let i=0; i<detailsSrc.length; i++) {
+        const details = detailsSrc[i].parentElement;
+        if (show) {
+          details.open = true;
+        } else {
+          details.removeAttribute("open");
+        }
+      }
+      const cellCodeDivs = window.document.querySelectorAll(".cell > .sourceCode");
+      const fromCls = show ? "hidden" : "unhidden";
+      const toCls = show ? "unhidden" : "hidden";
+      for (let i=0; i<cellCodeDivs.length; i++) {
+        const codeDiv = cellCodeDivs[i];
+        if (codeDiv.classList.contains(fromCls)) {
+          codeDiv.classList.remove(fromCls);
+          codeDiv.classList.add(toCls);
+        } 
+      }
+      return false;
+    }
+  }
+  const hideAllCode = window.document.getElementById("quarto-hide-all-code");
+  if (hideAllCode) {
+    hideAllCode.addEventListener("click", toggleCodeHandler(false));
+  }
+  const showAllCode = window.document.getElementById("quarto-show-all-code");
+  if (showAllCode) {
+    showAllCode.addEventListener("click", toggleCodeHandler(true));
+  }
+  function tippyHover(el, contentFn) {
+    const config = {
+      allowHTML: true,
+      content: contentFn,
+      maxWidth: 500,
+      delay: 100,
+      arrow: false,
+      appendTo: function(el) {
+          return el.parentElement;
+      },
+      interactive: true,
+      interactiveBorder: 10,
+      theme: 'quarto',
+      placement: 'bottom-start'
+    };
+    window.tippy(el, config); 
+  }
+  const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+  for (var i=0; i<noterefs.length; i++) {
+    const ref = noterefs[i];
+    tippyHover(ref, function() {
+      // use id or data attribute instead here
+      let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+      try { href = new URL(href).hash; } catch {}
+      const id = href.replace(/^#\/?/, "");
+      const note = window.document.getElementById(id);
+      return note.innerHTML;
+    });
+  }
+      let selectedAnnoteEl;
+      const selectorForAnnotation = ( cell, annotation) => {
+        let cellAttr = 'data-code-cell="' + cell + '"';
+        let lineAttr = 'data-code-annotation="' +  annotation + '"';
+        const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+        return selector;
+      }
+      const selectCodeLines = (annoteEl) => {
+        const doc = window.document;
+        const targetCell = annoteEl.getAttribute("data-target-cell");
+        const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+        const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+        const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+        const lineIds = lines.map((line) => {
+          return targetCell + "-" + line;
+        })
+        let top = null;
+        let height = null;
+        let parent = null;
+        if (lineIds.length > 0) {
+            //compute the position of the single el (top and bottom and make a div)
+            const el = window.document.getElementById(lineIds[0]);
+            top = el.offsetTop;
+            height = el.offsetHeight;
+            parent = el.parentElement.parentElement;
+          if (lineIds.length > 1) {
+            const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+            const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+            height = bottom - top;
+          }
+          if (top !== null && height !== null && parent !== null) {
+            // cook up a div (if necessary) and position it 
+            let div = window.document.getElementById("code-annotation-line-highlight");
+            if (div === null) {
+              div = window.document.createElement("div");
+              div.setAttribute("id", "code-annotation-line-highlight");
+              div.style.position = 'absolute';
+              parent.appendChild(div);
+            }
+            div.style.top = top - 2 + "px";
+            div.style.height = height + 4 + "px";
+            let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+            if (gutterDiv === null) {
+              gutterDiv = window.document.createElement("div");
+              gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+              gutterDiv.style.position = 'absolute';
+              const codeCell = window.document.getElementById(targetCell);
+              const gutter = codeCell.querySelector('.code-annotation-gutter');
+              gutter.appendChild(gutterDiv);
+            }
+            gutterDiv.style.top = top - 2 + "px";
+            gutterDiv.style.height = height + 4 + "px";
+          }
+          selectedAnnoteEl = annoteEl;
+        }
+      };
+      const unselectCodeLines = () => {
+        const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+        elementsIds.forEach((elId) => {
+          const div = window.document.getElementById(elId);
+          if (div) {
+            div.remove();
+          }
+        });
+        selectedAnnoteEl = undefined;
+      };
+      // Attach click handler to the DT
+      const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+      for (const annoteDlNode of annoteDls) {
+        annoteDlNode.addEventListener('click', (event) => {
+          const clickedEl = event.target;
+          if (clickedEl !== selectedAnnoteEl) {
+            unselectCodeLines();
+            const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+            if (activeEl) {
+              activeEl.classList.remove('code-annotation-active');
+            }
+            selectCodeLines(clickedEl);
+            clickedEl.classList.add('code-annotation-active');
+          } else {
+            // Unselect the line
+            unselectCodeLines();
+            clickedEl.classList.remove('code-annotation-active');
+          }
+        });
+      }
+  const findCites = (el) => {
+    const parentEl = el.parentElement;
+    if (parentEl) {
+      const cites = parentEl.dataset.cites;
+      if (cites) {
+        return {
+          el,
+          cites: cites.split(' ')
+        };
+      } else {
+        return findCites(el.parentElement)
+      }
+    } else {
+      return undefined;
+    }
+  };
+  var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+  for (var i=0; i<bibliorefs.length; i++) {
+    const ref = bibliorefs[i];
+    const citeInfo = findCites(ref);
+    if (citeInfo) {
+      tippyHover(citeInfo.el, function() {
+        var popup = window.document.createElement('div');
+        citeInfo.cites.forEach(function(cite) {
+          var citeDiv = window.document.createElement('div');
+          citeDiv.classList.add('hanging-indent');
+          citeDiv.classList.add('csl-entry');
+          var biblioDiv = window.document.getElementById('ref-' + cite);
+          if (biblioDiv) {
+            citeDiv.innerHTML = biblioDiv.innerHTML;
+          }
+          popup.appendChild(citeDiv);
+        });
+        return popup.innerHTML;
+      });
+    }
+  }
+});
+</script>
+<nav class="page-navigation">
+  <div class="nav-page nav-page-previous">
+      <a href="../chapters/chapter_02.html" class="pagination-link">
+        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">Cox regression model</span></span>
+      </a>          
+  </div>
+  <div class="nav-page nav-page-next">
+      <a href="../chapters/chapter_04.html" class="pagination-link">
+        <span class="nav-page-text"><span class="chapter-number">4</span>&nbsp; <span class="chapter-title">Calibration and revision of Cox models</span></span> <i class="bi bi-arrow-right-short"></i>
+      </a>
+  </div>
+</nav>
+</div> <!-- /content -->
+<footer class="footer">
+  <div class="nav-footer">
+    <div class="nav-footer-left">Dynamic Prediction in Clinical Survival Analysis</div>   
+    <div class="nav-footer-center">
+      &nbsp;
+    </div>
+    <div class="nav-footer-right">Built with <a href="https://quarto.org/">Quarto</a> and <a href="https://posit.co/products/open-source/rstudio/">RStudio</a></div>
+  </div>
+</footer>
+
+
+
+</body></html>

@@ -1,0 +1,804 @@
+---
+execute:
+  eval: false
+---
+
+# Dynamic prediction based on genomic data
+
+This file contains R code for the analyses in Chapter 12 of the book Dynamic Prediction in Clinical Survival Analysis (CRC Chapman & Hall) by Hans C. van Houwelingen and Hein Putter
+
+R code written by Hein Putter (H.Putter@lumc.nl for comments/questions)
+The dynpred package is available from CRAN
+
+Consistency with the book has been checked with
+- R version 2.14.0
+- survival version 2.36-10
+- dynpred version 0.1.1
+
+
+```{r}
+#| label: figbla
+
+library(penalized) # version 0.9-37
+library(Biobase) # see chap11.r for download
+library(dynpred)
+data(nki)
+
+### This chapter continues from chapter 11
+### If chapter 11 is still in memory there is no need to run the following and
+### you can continue where it says --- Continue here ---
+# The van de Vijver data, not part of dynpred, available from the book website,
+# chapter11, should be placed in the working directory
+load("VanDeVijver.Rdata")
+# Please make sure that the files "cvlassopred.txt" and "cvridgepred.txt",
+# available from the book website is placed in the working directory
+cvlasso <- read.table("cvlassopred.txt",header=TRUE,sep="\t")
+PI.lasso <- cvlasso$PI.lasso
+Surv.lasso <- cvlasso[,-(1:2)]
+cvridge <- read.table("cvridgepred.txt",header=TRUE,sep="\t")
+PI.ridge <- cvridge$PI.ridge
+Surv.ridge <- cvridge[,-(1:2)]
+# Save the follow-up data of VanDeVijver in separate data set,
+# rename time and status variables
+vdv <- pData(VanDeVijver)
+vdv$time <- vdv$survival.death.
+vdv$status <- vdv$event_death
+# Extract n and time points from the Surv.lasso object
+n <- nrow(Surv.lasso)
+tt <- as.numeric(substr(dimnames(Surv.lasso)[[2]],start=6,stop=100))
+# New cross-validated PI's, append them to vdv data
+t0 <- 5
+idxt0 <- max(which(tt<=t0))
+CVPI.lasso <- log(-log(Surv.lasso[,idxt0]))
+CVPI.lasso <- CVPI.lasso - mean(CVPI.lasso)
+CVPI.ridge <- log(-log(Surv.ridge[,idxt0]))
+CVPI.ridge <- CVPI.ridge - mean(CVPI.ridge)
+vdv$group.lasso <- as.numeric(cut(CVPI.lasso,c(-Inf,quantile(CVPI.lasso)[2:4],Inf)))
+vdv$group.ridge <- as.numeric(cut(CVPI.ridge,c(-Inf,quantile(CVPI.ridge)[2:4],Inf)))
+### Cross-validated clinical prognostic indices
+CVPI.clin <- rep(NA,n)
+for (i in 1:n) {
+  # leave i out
+  ci <- coxph(Surv(tyears,d) ~ chemotherapy + hormonaltherapy + typesurgery +
+    histolgrade + vasc.invasion + diameter + posnodes + age + mlratio, data=nki[-i,], method="breslow")
+  sfi <- survfit(ci, newdata=nki[i,])
+  summi <- summary(sfi, times=5)
+  CVPI.clin[i] <- log(-log(summi$surv))
+}
+CVPI.clin <- CVPI.clin-mean(CVPI.clin)
+
+### --- Continue here ---
+vdv$CVPI.clin <- CVPI.clin
+vdv$CVPI.gen <- CVPI.ridge
+# keep only smaller part
+vdv <- vdv[,c(1,30:35)]
+
+###############################################################################
+###############################################################################
+### Table 12.1: Regression coefficients (standard errors) in the two-stage
+### Cox regression approach
+###############################################################################
+###############################################################################
+
+tt <- sort(unique(vdv$time[vdv$status==1]))
+vdv2 <- survSplit(data=vdv, cut=tt, end="time", start="Tstart", event="status")
+vdv2$lnt <- log(vdv2$time+1)
+
+## Clinical cross-validated PI
+# Time fixed only
+clinfixed <- coxph(Surv(time, status) ~ CVPI.clin, data = vdv, method="breslow")
+clinfixed
+# Same model in longer data
+clinfixed <- coxph(Surv(Tstart, time, status) ~ CVPI.clin, data = vdv2, method="breslow")
+clinfixed
+data.frame(loglik0=clinfixed$loglik[1],loglik1=clinfixed$loglik[1],chisq=2*diff(clinfixed$loglik))
+# Time varying
+clintime <- coxph(Surv(Tstart, time, status) ~ CVPI.clin + CVPI.clin:lnt, data = vdv2, method="breslow")
+clintime
+data.frame(loglik0=clintime$loglik[1],loglik1=clintime$loglik[1],chisq=2*diff(clintime$loglik))
+anova(clinfixed,clintime)
+
+## Genetic cross-validated PI
+# Time fixed only, directly in longer data
+genfixed <- coxph(Surv(Tstart, time, status) ~ CVPI.gen, data = vdv2, method="breslow")
+genfixed
+data.frame(loglik0=genfixed$loglik[1],loglik1=genfixed$loglik[1],chisq=2*diff(genfixed$loglik))
+# Time varying
+gentime <- coxph(Surv(Tstart, time, status) ~ CVPI.gen + CVPI.gen:lnt, data = vdv2, method="breslow")
+gentime
+data.frame(loglik0=gentime$loglik[1],loglik1=gentime$loglik[1],chisq=2*diff(gentime$loglik))
+anova(genfixed,gentime)
+
+## Super learner
+c3 <- coxph(Surv(time,status)~CVPI.clin+CVPI.gen,data=vdv,method="breslow") # from end Chapter 11
+vdv$CVPI.comb <- c3$coef[1]*vdv$CVPI.clin + c3$coef[2]*vdv$CVPI.gen
+vdv2$CVPI.comb <- c3$coef[1]*vdv2$CVPI.clin + c3$coef[2]*vdv2$CVPI.gen
+
+# Time fixed only
+combfixed <- coxph(Surv(Tstart, time, status) ~ CVPI.comb, data = vdv2, method="breslow")
+combfixed
+data.frame(loglik0=combfixed$loglik[1],loglik1=combfixed$loglik[1],chisq=2*diff(combfixed$loglik))
+# Time varying
+combtime <- coxph(Surv(Tstart, time, status) ~ CVPI.comb + CVPI.comb:lnt, data = vdv2, method="breslow")
+combtime
+data.frame(loglik0=combtime$loglik[1],loglik1=combtime$loglik[1],chisq=2*diff(combtime$loglik))
+anova(combfixed,combtime)
+
+
+###############################################################################
+###############################################################################
+### Table 12.2: Univariate and multivariate Cox regression on clinical and
+### genomic cross-validated prognostic indices in different landmark data sets
+###############################################################################
+###############################################################################
+
+# Landmark data sets
+LMs <- seq(0,5,by=1)
+w <- 5
+for (i in 1:length(LMs)) {
+    LM <- LMs[i]
+    cat("\n\nLandmark time point:",LM,"\n\n")
+    LMdata <- cutLM(data=vdv,outcome=list(time="time",status="status"),
+        LM=LM,horizon=LM+w,covs=list(fixed=c("CVPI.clin","CVPI.gen","CVPI.comb"),timedep=NULL))
+    cox.clin <- coxph(Surv(LM,time,status)~CVPI.clin, data=LMdata, method="breslow")
+    print(data.frame(B=round(cox.clin$coef,3),chisq=round(2*diff(cox.clin$loglik),3)))
+    cox.gen <- coxph(Surv(LM,time,status)~CVPI.gen, data=LMdata, method="breslow")
+    print(data.frame(B=round(cox.gen$coef,3),chisq=round(2*diff(cox.gen$loglik),3)))
+    cox.comb <- coxph(Surv(LM,time,status)~CVPI.comb, data=LMdata, method="breslow")
+    print(data.frame(B=round(cox.comb$coef,3),chisq=round(2*diff(cox.comb$loglik),3)))
+}
+
+###############################################################################
+###############################################################################
+### Table 12.3: Estimated regression coefficients (standard errors) for the
+### proportional baselines (ipl*) landmark super models without and with
+### (landmark-dependent) linear landmark interactions
+###############################################################################
+###############################################################################
+
+# Stacked landmark data set based on a finer grid
+LMs <- seq(0,7,by=0.1)
+w <- 5
+LMdata <- cutLM(data=vdv,outcome=list(time="time",status="status"),
+    LM=0,horizon=w,covs=list(fixed=c("CVPI.clin","CVPI.gen","CVPI.comb"),timedep=NULL))
+for (i in 2:length(LMs)) {
+    LM <- LMs[i]
+    LMdata <- rbind(LMdata,cutLM(data=vdv,outcome=list(time="time",status="status"),
+        LM=LM,horizon=LM+w,covs=list(fixed=c("CVPI.clin","CVPI.gen","CVPI.comb"),timedep=NULL)))
+}
+
+f1 <- function(t) 1
+f2 <- function(t) (t/7)
+
+# Explicitly code interactions of treatment with LM
+LMdata$clin1 <- LMdata$CVPI.clin*f1(LMdata$LM)
+LMdata$clin2 <- LMdata$CVPI.clin*f2(LMdata$LM)
+LMdata$gen1 <- LMdata$CVPI.gen*f1(LMdata$LM)
+LMdata$gen2 <- LMdata$CVPI.gen*f2(LMdata$LM)
+LMdata$comb1 <- LMdata$CVPI.comb*f1(LMdata$LM)
+LMdata$comb2 <- LMdata$CVPI.comb*f2(LMdata$LM)
+# ipl model
+iplstrat <- coxph(Surv(LM,time,status) ~ clin1 + clin2 + gen1 + gen2 + strata(LM) + cluster(ID), data=LMdata, method="breslow")
+iplstrat
+# ipl* model
+g1 <- function(t) (t/7)
+g2 <- function(t) (t/7)^2
+LMdata$LM1 <- g1(LMdata$LM)
+LMdata$LM2 <- g2(LMdata$LM)
+iplcov <- coxph(Surv(LM,time,status) ~ clin1 + clin2 + gen1 + gen2 + LM1 + LM2 + cluster(ID), data=LMdata, method="breslow")
+iplcov
+
+# ipl* models, separate and combined, with and without interactions
+iplclin1 <- coxph(Surv(LM,time,status) ~ clin1 + LM1 + LM2 + cluster(ID), data=LMdata, method="breslow")
+iplclin1
+iplclin2 <- coxph(Surv(LM,time,status) ~ clin1 + clin2 + LM1 + LM2 + cluster(ID), data=LMdata, method="breslow")
+iplclin2
+iplgen1 <- coxph(Surv(LM,time,status) ~ gen1 + LM1 + LM2 + cluster(ID), data=LMdata, method="breslow")
+iplgen1
+iplgen2 <- coxph(Surv(LM,time,status) ~ gen1 + gen2 + LM1 + LM2 + cluster(ID), data=LMdata, method="breslow")
+iplgen2
+iplcomb1 <- coxph(Surv(LM,time,status) ~ comb1 + LM1 + LM2 + cluster(ID), data=LMdata, method="breslow")
+iplcomb1
+iplcomb2 <- coxph(Surv(LM,time,status) ~ comb1 + comb2 + LM1 + LM2 + cluster(ID), data=LMdata, method="breslow")
+iplcomb2
+iplcov1 <- coxph(Surv(LM,time,status) ~ clin1 + gen1 + LM1 + LM2 + cluster(ID), data=LMdata, method="breslow")
+iplcov1
+iplcov2 <- coxph(Surv(LM,time,status) ~ clin1 + clin2 + gen1 + gen2 + LM1 + LM2 + cluster(ID), data=LMdata, method="breslow")
+iplcov2
+
+###############################################################################
+###############################################################################
+### Figure 12.1: Dynamic fixed width predictions for without and with landmark
+### interactions
+###############################################################################
+###############################################################################
+
+bhclin1 <- basehaz(iplclin1,centered=FALSE)
+bhclin2 <- basehaz(iplclin2,centered=FALSE)
+bhgen1 <- basehaz(iplgen1,centered=FALSE)
+bhgen2 <- basehaz(iplgen2,centered=FALSE)
+bhcomb1 <- basehaz(iplcomb1,centered=FALSE)
+bhcomb2 <- basehaz(iplcomb2,centered=FALSE)
+bhcov1 <- basehaz(iplcov1,centered=FALSE)
+bhcov2 <- basehaz(iplcov2,centered=FALSE)
+
+### Prediction plot, uses 25 and 75% quantiles
+clin.qs <- quantile(vdv$CVPI.clin,probs=c(0.25,0.75))
+clin.qs
+gen.qs <- quantile(vdv$CVPI.gen,probs=c(0.25,0.75))
+gen.qs
+# The corresponding quantiles of the super learner in the data
+# for these four individuals
+outer(0.495*clin.qs, 0.582*gen.qs, "+")
+Fn <- ecdf(vdv$CVPI.comb)
+Fn(outer(0.495*clin.qs, 0.582*gen.qs, "+"))
+
+## Dynamic predictions for clinical landmark-fixed
+sfclin1 <- survfit(iplclin1,newdata=data.frame(clin1=clin.qs,LM1=0,LM2=0),censor=FALSE)
+sfclin11 <- data.frame(time=sfclin1[1]$time,surv=sfclin1[1]$surv)
+sfclin11$Haz <- -log(sfclin11$surv)
+sfclin11$haz <- diff(c(0,sfclin11$Haz))
+sfclin12 <- data.frame(time=sfclin1[2]$time,surv=sfclin1[2]$surv)
+sfclin12$Haz <- -log(sfclin12$surv)
+sfclin12$haz <- diff(c(0,sfclin12$Haz))
+
+tpred <- c(sfclin11$time,sfclin11$time-w)
+tpred <- c(0,sort(tpred[tpred>0 & tpred<=7]))
+npred <- length(tpred)
+Fwclin11 <- Fwclin12 <- rep(NA,npred)
+for (i in 1:npred) {
+  tp <- tpred[i]
+  sfi1 <- sfclin11
+  sfi1$haz <- sfi1$haz*exp(iplclin1$coef["LM1"]*g1(tp)+iplclin1$coef["LM2"]*g2(tp))
+  sfi1$Haz <- cumsum(sfi1$haz)
+  tmp <- approx(sfclin11$time, sfi1$Haz, c(tp,tp+w), method="constant",
+          yleft=0, yright=max(sfi1$Haz))$y
+  Fwclin11[i] <- 1-exp(-diff(tmp))
+  sfi2 <- sfclin12
+  sfi2$haz <- sfi2$haz*exp(iplclin1$coef["LM1"]*g1(tp)+iplclin1$coef["LM2"]*g2(tp))
+  sfi2$Haz <- cumsum(sfi2$haz)
+  tmp <- approx(sfclin12$time, sfi2$Haz, c(tp,tp+w), method="constant",
+          yleft=0, yright=max(sfi2$Haz))$y
+  Fwclin12[i] <- 1-exp(-diff(tmp))
+}
+
+## Dynamic predictions for genomic landmark-fixed
+sfgen1 <- survfit(iplgen1,newdata=data.frame(gen1=gen.qs,LM1=0,LM2=0),censor=FALSE)
+sfgen11 <- data.frame(time=sfgen1[1]$time,surv=sfgen1[1]$surv)
+sfgen11$Haz <- -log(sfgen11$surv)
+sfgen11$haz <- diff(c(0,sfgen11$Haz))
+sfgen12 <- data.frame(time=sfgen1[2]$time,surv=sfgen1[2]$surv)
+sfgen12$Haz <- -log(sfgen12$surv)
+sfgen12$haz <- diff(c(0,sfgen12$Haz))
+
+tpred <- c(sfgen11$time,sfgen11$time-w)
+tpred <- c(0,sort(tpred[tpred>0 & tpred<=7]))
+npred <- length(tpred)
+Fwgen11 <- Fwgen12 <- rep(NA,npred)
+for (i in 1:npred) {
+  tp <- tpred[i]
+  sfi1 <- sfgen11
+  sfi1$haz <- sfi1$haz*exp(iplgen1$coef["LM1"]*g1(tp)+iplgen1$coef["LM2"]*g2(tp))
+  sfi1$Haz <- cumsum(sfi1$haz)
+  tmp <- approx(sfgen11$time, sfi1$Haz, c(tp,tp+w), method="constant",
+          yleft=0, yright=max(sfi1$Haz))$y
+  Fwgen11[i] <- 1-exp(-diff(tmp))
+  sfi2 <- sfgen12
+  sfi2$haz <- sfi2$haz*exp(iplgen1$coef["LM1"]*g1(tp)+iplgen1$coef["LM2"]*g2(tp))
+  sfi2$Haz <- cumsum(sfi2$haz)
+  tmp <- approx(sfgen12$time, sfi2$Haz, c(tp,tp+w), method="constant",
+          yleft=0, yright=max(sfi2$Haz))$y
+  Fwgen12[i] <- 1-exp(-diff(tmp))
+}
+
+## Dynamic predictions for super learner landmark-fixed
+# This will have 4 different predictions
+sfcomb1 <- survfit(iplcomb1,newdata=data.frame(comb1=as.vector(outer(0.495*clin.qs, 0.582*gen.qs, "+")),LM1=0,LM2=0),censor=FALSE)
+sfcomb11 <- data.frame(time=sfcomb1[1]$time,surv=sfcomb1[1]$surv)
+sfcomb11$Haz <- -log(sfcomb11$surv)
+sfcomb11$haz <- diff(c(0,sfcomb11$Haz))
+sfcomb12 <- data.frame(time=sfcomb1[2]$time,surv=sfcomb1[2]$surv)
+sfcomb12$Haz <- -log(sfcomb12$surv)
+sfcomb12$haz <- diff(c(0,sfcomb12$Haz))
+sfcomb13 <- data.frame(time=sfcomb1[3]$time,surv=sfcomb1[3]$surv)
+sfcomb13$Haz <- -log(sfcomb13$surv)
+sfcomb13$haz <- diff(c(0,sfcomb13$Haz))
+sfcomb14 <- data.frame(time=sfcomb1[4]$time,surv=sfcomb1[4]$surv)
+sfcomb14$Haz <- -log(sfcomb14$surv)
+sfcomb14$haz <- diff(c(0,sfcomb14$Haz))
+
+tpred <- c(sfcomb11$time,sfcomb11$time-w)
+tpred <- c(0,sort(tpred[tpred>0 & tpred<=7]))
+npred <- length(tpred)
+Fwcomb11 <- Fwcomb12 <- Fwcomb13 <- Fwcomb14 <-rep(NA,npred)
+for (i in 1:npred) {
+  tp <- tpred[i]
+  sfi1 <- sfcomb11
+  sfi1$haz <- sfi1$haz*exp(iplcomb1$coef["LM1"]*g1(tp)+iplcomb1$coef["LM2"]*g2(tp))
+  sfi1$Haz <- cumsum(sfi1$haz)
+  tmp <- approx(sfcomb11$time, sfi1$Haz, c(tp,tp+w), method="constant",
+          yleft=0, yright=max(sfi1$Haz))$y
+  Fwcomb11[i] <- 1-exp(-diff(tmp))
+  sfi2 <- sfcomb12
+  sfi2$haz <- sfi2$haz*exp(iplcomb1$coef["LM1"]*g1(tp)+iplcomb1$coef["LM2"]*g2(tp))
+  sfi2$Haz <- cumsum(sfi2$haz)
+  tmp <- approx(sfcomb12$time, sfi2$Haz, c(tp,tp+w), method="constant",
+          yleft=0, yright=max(sfi2$Haz))$y
+  Fwcomb12[i] <- 1-exp(-diff(tmp))
+  sfi3 <- sfcomb13
+  sfi3$haz <- sfi3$haz*exp(iplcomb1$coef["LM1"]*g1(tp)+iplcomb1$coef["LM2"]*g2(tp))
+  sfi3$Haz <- cumsum(sfi3$haz)
+  tmp <- approx(sfcomb13$time, sfi3$Haz, c(tp,tp+w), method="constant",
+          yleft=0, yright=max(sfi3$Haz))$y
+  Fwcomb13[i] <- 1-exp(-diff(tmp))
+  sfi4 <- sfcomb14
+  sfi4$haz <- sfi4$haz*exp(iplcomb1$coef["LM1"]*g1(tp)+iplcomb1$coef["LM2"]*g2(tp))
+  sfi4$Haz <- cumsum(sfi4$haz)
+  tmp <- approx(sfcomb14$time, sfi4$Haz, c(tp,tp+w), method="constant",
+          yleft=0, yright=max(sfi4$Haz))$y
+  Fwcomb14[i] <- 1-exp(-diff(tmp))
+}
+
+## Dynamic predictions for clinical landmark-dependent
+sfclin2 <- survfit(iplclin2,newdata=data.frame(clin1=clin.qs,clin2=0,LM1=0,LM2=0),censor=FALSE)
+sfclin21 <- data.frame(time=sfclin2[1]$time,surv=sfclin2[1]$surv)
+sfclin21$Haz <- -log(sfclin21$surv)
+sfclin21$haz <- diff(c(0,sfclin21$Haz))
+sfclin22 <- data.frame(time=sfclin2[2]$time,surv=sfclin2[2]$surv)
+sfclin22$Haz <- -log(sfclin22$surv)
+sfclin22$haz <- diff(c(0,sfclin22$Haz))
+
+tpred <- c(sfclin21$time,sfclin21$time-w)
+tpred <- c(0,sort(tpred[tpred>0 & tpred<=7]))
+npred <- length(tpred)
+Fwclin21 <- Fwclin22 <- rep(NA,npred)
+for (i in 1:npred) {
+  tp <- tpred[i]
+  sfi1 <- sfclin21
+  sfi1$haz <- sfi1$haz*exp(iplclin2$coef["clin2"]*clin.qs[1]*f2(tp)+iplclin2$coef["LM1"]*g1(tp)+iplclin2$coef["LM2"]*g2(tp))
+  sfi1$Haz <- cumsum(sfi1$haz)
+  tmp <- approx(sfclin21$time, sfi1$Haz, c(tp,tp+w), method="constant",
+          yleft=0, yright=max(sfi1$Haz))$y
+  Fwclin21[i] <- 1-exp(-diff(tmp))
+  sfi2 <- sfclin22
+  sfi2$haz <- sfi2$haz*exp(iplclin2$coef["clin2"]*clin.qs[2]*f2(tp)+iplclin2$coef["LM1"]*g1(tp)+iplclin2$coef["LM2"]*g2(tp))
+  sfi2$Haz <- cumsum(sfi2$haz)
+  tmp <- approx(sfclin22$time, sfi2$Haz, c(tp,tp+w), method="constant",
+          yleft=0, yright=max(sfi2$Haz))$y
+  Fwclin22[i] <- 1-exp(-diff(tmp))
+}
+
+## Dynamic predictions for genomic landmark-dependent
+sfgen2 <- survfit(iplgen2,newdata=data.frame(gen1=gen.qs,gen2=0,LM1=0,LM2=0),censor=FALSE)
+sfgen21 <- data.frame(time=sfgen2[1]$time,surv=sfgen2[1]$surv)
+sfgen21$Haz <- -log(sfgen21$surv)
+sfgen21$haz <- diff(c(0,sfgen21$Haz))
+sfgen22 <- data.frame(time=sfgen2[2]$time,surv=sfgen2[2]$surv)
+sfgen22$Haz <- -log(sfgen22$surv)
+sfgen22$haz <- diff(c(0,sfgen22$Haz))
+
+tpred <- c(sfgen21$time,sfgen21$time-w)
+tpred <- c(0,sort(tpred[tpred>0 & tpred<=7]))
+npred <- length(tpred)
+Fwgen21 <- Fwgen22 <- rep(NA,npred)
+for (i in 1:npred) {
+  tp <- tpred[i]
+  sfi1 <- sfgen21
+  sfi1$haz <- sfi1$haz*exp(iplgen2$coef["gen2"]*gen.qs[1]*f2(tp)+iplgen2$coef["LM1"]*g1(tp)+iplgen2$coef["LM2"]*g2(tp))
+  sfi1$Haz <- cumsum(sfi1$haz)
+  tmp <- approx(sfgen21$time, sfi1$Haz, c(tp,tp+w), method="constant",
+          yleft=0, yright=max(sfi1$Haz))$y
+  Fwgen21[i] <- 1-exp(-diff(tmp))
+  sfi2 <- sfgen22
+  sfi2$haz <- sfi2$haz*exp(iplgen2$coef["gen2"]*gen.qs[2]*f2(tp)+iplgen2$coef["LM1"]*g1(tp)+iplgen2$coef["LM2"]*g2(tp))
+  sfi2$Haz <- cumsum(sfi2$haz)
+  tmp <- approx(sfgen22$time, sfi2$Haz, c(tp,tp+w), method="constant",
+          yleft=0, yright=max(sfi2$Haz))$y
+  Fwgen22[i] <- 1-exp(-diff(tmp))
+}
+
+## Dynamic predictions for super learner landmark-dependent
+# This will have 4 different predictions
+combs <- as.vector(outer(0.495*clin.qs, 0.582*gen.qs, "+"))
+sfcomb2 <- survfit(iplcomb2,newdata=data.frame(comb1=combs,comb2=0,LM1=0,LM2=0),censor=FALSE)
+sfcomb21 <- data.frame(time=sfcomb2[1]$time,surv=sfcomb2[1]$surv)
+sfcomb21$Haz <- -log(sfcomb21$surv)
+sfcomb21$haz <- diff(c(0,sfcomb21$Haz))
+sfcomb22 <- data.frame(time=sfcomb2[2]$time,surv=sfcomb2[2]$surv)
+sfcomb22$Haz <- -log(sfcomb22$surv)
+sfcomb22$haz <- diff(c(0,sfcomb22$Haz))
+sfcomb23 <- data.frame(time=sfcomb2[3]$time,surv=sfcomb2[3]$surv)
+sfcomb23$Haz <- -log(sfcomb23$surv)
+sfcomb23$haz <- diff(c(0,sfcomb23$Haz))
+sfcomb24 <- data.frame(time=sfcomb2[4]$time,surv=sfcomb2[4]$surv)
+sfcomb24$Haz <- -log(sfcomb24$surv)
+sfcomb24$haz <- diff(c(0,sfcomb24$Haz))
+
+tpred <- c(sfcomb21$time,sfcomb21$time-w)
+tpred <- c(0,sort(tpred[tpred>0 & tpred<=7]))
+npred <- length(tpred)
+Fwcomb21 <- Fwcomb22 <- Fwcomb23 <- Fwcomb24 <-rep(NA,npred)
+for (i in 1:npred) {
+  tp <- tpred[i]
+  sfi1 <- sfcomb21
+  sfi1$haz <- sfi1$haz*exp(iplcomb2$coef["comb2"]*combs[1]*f2(tp)+iplcomb2$coef["LM1"]*g1(tp)+iplcomb2$coef["LM2"]*g2(tp))
+  sfi1$Haz <- cumsum(sfi1$haz)
+  tmp <- approx(sfcomb21$time, sfi1$Haz, c(tp,tp+w), method="constant",
+          yleft=0, yright=max(sfi1$Haz))$y
+  Fwcomb21[i] <- 1-exp(-diff(tmp))
+  sfi2 <- sfcomb22
+  sfi2$haz <- sfi2$haz*exp(iplcomb2$coef["comb2"]*combs[2]*f2(tp)+iplcomb2$coef["LM1"]*g1(tp)+iplcomb2$coef["LM2"]*g2(tp))
+  sfi2$Haz <- cumsum(sfi2$haz)
+  tmp <- approx(sfcomb22$time, sfi2$Haz, c(tp,tp+w), method="constant",
+          yleft=0, yright=max(sfi2$Haz))$y
+  Fwcomb22[i] <- 1-exp(-diff(tmp))
+  sfi3 <- sfcomb23
+  sfi3$haz <- sfi3$haz*exp(iplcomb2$coef["comb2"]*combs[3]*f2(tp)+iplcomb2$coef["LM1"]*g1(tp)+iplcomb2$coef["LM2"]*g2(tp))
+  sfi3$Haz <- cumsum(sfi3$haz)
+  tmp <- approx(sfcomb23$time, sfi3$Haz, c(tp,tp+w), method="constant",
+          yleft=0, yright=max(sfi3$Haz))$y
+  Fwcomb23[i] <- 1-exp(-diff(tmp))
+  sfi4 <- sfcomb24
+  sfi4$haz <- sfi4$haz*exp(iplcomb2$coef["comb2"]*combs[4]*f2(tp)+iplcomb2$coef["LM1"]*g1(tp)+iplcomb2$coef["LM2"]*g2(tp))
+  sfi4$Haz <- cumsum(sfi4$haz)
+  tmp <- approx(sfcomb24$time, sfi4$Haz, c(tp,tp+w), method="constant",
+          yleft=0, yright=max(sfi4$Haz))$y
+  Fwcomb24[i] <- 1-exp(-diff(tmp))
+}
+
+plot(tpred,Fwclin11,type="s",lwd=2,ylim=c(0,0.5),
+  xlab="Prediction time (years)",ylab="Probability")
+lines(tpred,Fwclin12,type="s",lwd=2,lty=2)
+lines(tpred,Fwclin21,type="s",lwd=2,col="#646060")
+lines(tpred,Fwclin22,type="s",lwd=2,col="#646060",lty=2)
+legend("topright",
+  c("High risk, landmark fixed","High risk, landmark dependent",
+  "Low risk, landmark fixed","Low risk, landmark dependent"),
+  lwd=2,lty=c(2,2,1,1),
+  col=c(1,"#646060",1,"#646060"),bty="n")
+title(main="Clinical")
+
+plot(tpred,Fwgen11,type="s",lwd=2,ylim=c(0,0.5),
+  xlab="Prediction time (years)",ylab="Probability")
+lines(tpred,Fwgen12,type="s",lwd=2,lty=2)
+lines(tpred,Fwgen21,type="s",lwd=2,col="#646060")
+lines(tpred,Fwgen22,type="s",lwd=2,col="#646060",lty=2)
+legend("topright",
+  c("High risk, landmark fixed","High risk, landmark dependent",
+  "Low risk, landmark fixed","Low risk, landmark dependent"),
+  lwd=2,lty=c(2,2,1,1),
+  col=c(1,"#646060",1,"#646060"),bty="n")
+title(main="Genomic")
+
+plot(tpred,Fwcomb11,type="s",lwd=2,ylim=c(0,0.5),
+  xlab="Prediction time (years)",ylab="Probability")
+lines(tpred,Fwcomb12,type="s",lwd=2,lty=2)
+lines(tpred,Fwcomb13,type="s",lwd=2,lty=3)
+lines(tpred,Fwcomb14,type="s",lwd=2,lty=4)
+lines(tpred,Fwcomb21,type="s",lwd=2,col="#646060")
+lines(tpred,Fwcomb22,type="s",lwd=2,col="#646060",lty=2)
+lines(tpred,Fwcomb23,type="s",lwd=2,col="#646060",lty=3)
+lines(tpred,Fwcomb24,type="s",lwd=2,col="#646060",lty=4)
+legend("topright",
+  c("High risk clinical, high risk genomic",
+    "High risk clinical, low risk genomic",
+    "Low risk clinical, high risk genomic",
+    "Low risk clinical, Low risk genomic"),
+  lwd=2,lty=c(4,2,3,1),bty="n")
+legend("bottomleft",c("Landmark fixed","Landmark dependent"),
+  lwd=2,col=c(1,"#646060"),bty="n")
+title(main="Super learner")
+
+###############################################################################
+###############################################################################
+### Figure 12.2: Kullback-Leibler dynamic (fixed width w = 5) prediction error
+### curves for the landmark supermodels without and with landmark interactions
+###############################################################################
+###############################################################################
+
+### Kullback-Leibler dynamic prediction error curves
+# Have to call pe for each landmark time point for each of the models
+LMs <- seq(0,7,by=0.025)
+w <- 5
+pes <- matrix(NA,length(LMs),9)
+pes[,1] <- LMs
+for (j in 1:length(LMs)) {
+    LM <- LMs[j]
+# deb(LM, method="cat")
+    ## Make predictions
+
+    # Use landmark data set for estimating conditional censoring distr
+    LMdataj <- cutLM(data=vdv,outcome=list(time="time",status="status"),
+        LM=LM,horizon=LM+w,covs=list(fixed=c("CVPI.clin","CVPI.gen","CVPI.comb"),timedep=NULL))
+    # Explicitly code interactions of treatment with LM and put in LMdataj
+    LMdataj$clin1 <- LMdataj$CVPI.clin*f1(LMdataj$LM)
+    LMdataj$clin2 <- LMdataj$CVPI.clin*f2(LMdataj$LM)
+    LMdataj$gen1 <- LMdataj$CVPI.gen*f1(LMdataj$LM)
+    LMdataj$gen2 <- LMdataj$CVPI.gen*f2(LMdataj$LM)
+    LMdataj$comb1 <- LMdataj$CVPI.comb*f1(LMdataj$LM)
+    LMdataj$comb2 <- LMdataj$CVPI.comb*f2(LMdataj$LM)
+    LMdataj$LM1 <- g1(LMdataj$LM)
+    LMdataj$LM2 <- g2(LMdataj$LM)
+
+    ni <- nrow(LMdataj)
+# deb(ni, method="cat")
+    sfcens <- survfit(Surv(time,status==0)~1,data=LMdataj)
+    tcens <- sfcens$time
+    censmat <- matrix(sfcens$surv,length(sfcens$surv),ni)
+    # clin1
+    H0 <- diff(evalstep(time=bhclin1$time,stepf=bhclin1$hazard,newtime=c(LM,LM+w),subst=0))
+    B <- iplclin1$coef
+    HR <- exp(B["clin1"] * LMdataj$clin1 + B["LM1"]*g1(LM) + B["LM2"]*g2(LM))
+    pes[j,2] <- pe(time=LMdataj$time, status=LMdataj$status,
+        tsurv=LM+w, survmat=matrix(exp(-HR*H0),1,ni),
+        tcens=tcens, censmat=censmat, tout=LM+w-0.00001)$Err
+    # clin2
+    H0 <- diff(evalstep(time=bhclin2$time,stepf=bhclin2$hazard,newtime=c(LM,LM+w),subst=0))
+    B <- iplclin2$coef
+    HR <- exp(B["clin1"]*LMdataj$clin1 + B["clin2"]*LMdataj$clin2*f2(LM) + B["LM1"]*g1(LM) + B["LM2"]*g2(LM))
+    pes[j,3] <- pe(time=LMdataj$time, status=LMdataj$status,
+        tsurv=LM+w, survmat=matrix(exp(-HR*H0),1,ni),
+        tcens=tcens, censmat=censmat, tout=LM+w-0.00001)$Err
+    # gen1
+    H0 <- diff(evalstep(time=bhgen1$time,stepf=bhgen1$hazard,newtime=c(LM,LM+w),subst=0))
+    B <- iplgen1$coef
+    HR <- exp(B["gen1"] * LMdataj$gen1 + B["LM1"]*g1(LM) + B["LM2"]*g2(LM))
+    pes[j,4] <- pe(time=LMdataj$time, status=LMdataj$status,
+        tsurv=LM+w, survmat=matrix(exp(-HR*H0),1,ni),
+        tcens=tcens, censmat=censmat, tout=LM+w-0.00001)$Err
+    # gen2
+    H0 <- diff(evalstep(time=bhgen2$time,stepf=bhgen2$hazard,newtime=c(LM,LM+w),subst=0))
+    B <- iplgen2$coef
+    HR <- exp(B["gen1"]*LMdataj$gen1 + B["gen2"]*LMdataj$gen2*f2(LM) + B["LM1"]*g1(LM) + B["LM2"]*g2(LM))
+    pes[j,5] <- pe(time=LMdataj$time, status=LMdataj$status,
+        tsurv=LM+w, survmat=matrix(exp(-HR*H0),1,ni),
+        tcens=tcens, censmat=censmat, tout=LM+w-0.00001)$Err
+    # comb1
+    H0 <- diff(evalstep(time=bhcomb1$time,stepf=bhcomb1$hazard,newtime=c(LM,LM+w),subst=0))
+    B <- iplcomb1$coef
+    HR <- exp(B["comb1"] * LMdataj$comb1 + B["LM1"]*g1(LM) + B["LM2"]*g2(LM))
+    pes[j,6] <- pe(time=LMdataj$time, status=LMdataj$status,
+        tsurv=LM+w, survmat=matrix(exp(-HR*H0),1,ni),
+        tcens=tcens, censmat=censmat, tout=LM+w-0.00001)$Err
+    # comb2
+    H0 <- diff(evalstep(time=bhcomb2$time,stepf=bhcomb2$hazard,newtime=c(LM,LM+w),subst=0))
+    B <- iplcomb2$coef
+    HR <- exp(B["comb1"]*LMdataj$comb1 + B["comb2"]*LMdataj$comb2*f2(LM) + B["LM1"]*g1(LM) + B["LM2"]*g2(LM))
+    pes[j,7] <- pe(time=LMdataj$time, status=LMdataj$status,
+        tsurv=LM+w, survmat=matrix(exp(-HR*H0),1,ni),
+        tcens=tcens, censmat=censmat, tout=LM+w-0.00001)$Err
+    # cov1
+    H0 <- diff(evalstep(time=bhcov1$time,stepf=bhcov1$hazard,newtime=c(LM,LM+w),subst=0))
+    B <- iplcov1$coef
+    HR <- exp(B["clin1"]*LMdataj$clin1 + B["gen1"]*LMdataj$gen1 + B["LM1"]*g1(LM) + B["LM2"]*g2(LM))
+    pes[j,8] <- pe(time=LMdataj$time, status=LMdataj$status,
+        tsurv=LM+w, survmat=matrix(exp(-HR*H0),1,ni),
+        tcens=tcens, censmat=censmat, tout=LM+w-0.00001)$Err
+    # cov2
+    H0 <- diff(evalstep(time=bhcov2$time,stepf=bhcov2$hazard,newtime=c(LM,LM+w),subst=0))
+    B <- iplcov2$coef
+    HR <- exp(B["clin1"]*LMdataj$clin1 + B["clin2"]*LMdataj$clin2*f2(LM) +
+                + B["gen1"]*LMdataj$gen1 + B["gen2"]*LMdataj$gen2*f2(LM) + B["LM1"]*g1(LM) + B["LM2"]*g2(LM))
+    pes[j,9] <- pe(time=LMdataj$time, status=LMdataj$status,
+        tsurv=LM+w, survmat=matrix(exp(-HR*H0),1,ni),
+        tcens=tcens, censmat=censmat, tout=LM+w-0.00001)$Err
+}
+pes <- as.data.frame(pes)
+names(pes) <- c("time","clin1","clin2","gen1","gen2","comb1","comb2","cov1","cov2")
+
+# The null model is easier, just a call to pewcox
+KLw0 <- pewcox(Surv(time,status)~1, Surv(time,status==0)~1, width=w,
+  data=vdv)
+pes$null <- evalstep(time=KLw0$time,stepf=KLw0$Err,newtime=LMs,subst=0)
+
+## Without landmark interactions
+plot(pes$time,pes$null,type="s",lwd=2,lty=2,col="#646060",ylim=c(0.3,0.52),xlab="Time (years)",ylab="Prediction error")
+lines(pes$time,pes$clin1,type="s",lwd=2,lty=2,col=1)
+lines(pes$time,pes$gen1,type="s",lwd=2,lty=1,col="#646060")
+lines(pes$time,pes$comb1,type="s",lwd=2,lty=1,col=1)
+legend("topright",c("Null model","Clinical only","Genomic only","Super learner"),
+  lwd=2,lty=c(2,2,1,1),col=c("#646060",1,"#646060",1),bty="n")
+
+## With landmark interactions
+plot(pes$time,pes$null,type="s",lwd=2,lty=2,col="#646060",ylim=c(0.3,0.52),xlab="Time (years)",ylab="Prediction error")
+lines(pes$time,pes$clin2,type="s",lwd=2,lty=2,col=1)
+lines(pes$time,pes$gen2,type="s",lwd=2,lty=1,col="#646060")
+lines(pes$time,pes$comb2,type="s",lwd=2,lty=1,col=1)
+legend("topright",c("Null model","Clinical only","Genomic only","Super learner"),
+  lwd=2,lty=c(2,2,1,1),col=c("#646060",1,"#646060",1),bty="n")
+
+###############################################################################
+###############################################################################
+### Figure 12.3: Kullback-Leibler dynamic (fixed width w = 5) prediction error
+### reduction curves for the landmark supermodels without and with landmark
+### interactions
+###############################################################################
+###############################################################################
+
+pesr <- pes
+pesr[,2:9] <- (pesr[,10]-pesr[,2:9])/pesr[,10]
+
+## Without landmark interactions
+plot(pesr$time,pesr$clin1,type="s",lwd=2,lty=2,col=1,ylim=c(0,0.2),xlab="Time (years)",ylab="Prediction error reduction")
+lines(pesr$time,pesr$gen1,type="s",lwd=2,lty=1,col="#646060")
+lines(pesr$time,pesr$comb1,type="s",lwd=2,lty=1,col=1)
+legend("topright",c("Clinical only","Genomic only","Super learner"),
+  lwd=2,lty=c(2,1,1),col=c(1,"#646060",1),bty="n")
+
+## With landmark interactions
+plot(pesr$time,pesr$clin2,type="s",lwd=2,lty=2,col=1,ylim=c(0,0.2),xlab="Time (years)",ylab="Prediction error reduction")
+lines(pesr$time,pesr$gen2,type="s",lwd=2,lty=1,col="#646060")
+lines(pesr$time,pesr$comb2,type="s",lwd=2,lty=1,col=1)
+legend("topright",c("Clinical only","Genomic only","Super learner"),
+  lwd=2,lty=c(2,1,1),col=c(1,"#646060",1),bty="n")
+
+
+###############################################################################
+###############################################################################
+### Ridge regression for a set of landmark time points, 0, ..., 5
+###############################################################################
+###############################################################################
+
+# Note, this is very time-consuming, so instead of running this part, the
+# second part, now commented out, could be run instead. Please make
+# sure that the file "cvlassopred.txt", available from the book website
+# is placed in the working directory
+
+### Run ridge regression on landmark data sets, calculate cross-validated
+### prognostic index for each individual in the landmark data set,
+### and append that to vdv data
+LMs <- seq(0,5,by=1)
+w <- 5
+vdvplus <- vdv[,1:3]
+vdvplus <- cbind(vdvplus,t(exprs(VanDeVijver)))
+
+for (i in 1:length(LMs)) {
+    LM <- LMs[i]
+cat("\n\nLandmark time point:",LM,"\n\n")
+    LMdata <- cutLM(data=vdvplus,outcome=list(time="time",status="status"),
+        LM=LM,horizon=LM+w,covs=list(fixed=names(vdvplus)[-(1:3)],timedep=NULL))
+deb(dim(LMdata), method="cat")
+    print(LMdata[1:6,1:8])
+    optlam2.LM <- optL2(Surv(LM,time,status), LMdata[,4:4922], data=LMdata)
+    lamridg.LM <- optlam2.LM$lambda # optimal lambda
+    ridg.LM <- cvl(Surv(time,status), LMdata[,4:4922], lambda2=lamridg.LM, data=LMdata)
+    Surv.ridge.LM <- as.matrix(ridg.LM$predictions)
+    PI.ridge.LM <-  linear.predictors(ridg.LM$ful)
+    tt.LM <- as.numeric(substr(dimnames(Surv.ridge.LM)[[2]],start=1,stop=100))
+    idxLMw <- max(which(tt.LM<=LM+w))
+    CVPI.ridge.LM <- log(-log(Surv.ridge.LM[,idxLMw]))
+    CVPI.ridge.LM <- CVPI.ridge.LM - mean(CVPI.ridge.LM)
+    nm <- paste("CVPI.LM",LM,sep="")
+    add <- rep(NA,n)
+    add[match(LMdata$ID,vdv$ID)] <- CVPI.ridge.LM
+    vdv <- cbind(vdv,add)
+    names(vdv)[ncol(vdv)] <- nm
+}
+
+# Write result to tab-delimited text file (uncomment next line)
+# write.table(vdv,file="vdv.txt",sep="\t",row.names=FALSE,col.names=TRUE)
+
+# vdv <- read.table("vdv.txt",header=TRUE,sep="\t")
+
+# This did not make it in the book, was replaced by table with correlations
+pairs(vdv[,c(7,9:14)],pch=20,cex=0.5)
+
+###############################################################################
+###############################################################################
+### Table 12.4: Standard deviations and correlations of cross-validated
+### landmark specific genomic ridge predictors
+###############################################################################
+###############################################################################
+
+round(apply(vdv[,c(7,9:14)],2,sd,na.rm=TRUE),2)
+round(cor(vdv[,c(7,9:14)],use="pairwise.complete.obs"),3)
+
+###############################################################################
+###############################################################################
+### Table 12.5: Comparison of model chi^2 for different approaches,
+### using the genomic data
+###############################################################################
+###############################################################################
+
+# Cox models on the landmark data sets
+LMs <- seq(0,5,by=1)
+w <- 5
+
+for (i in 1:length(LMs)) {
+    LM <- LMs[i]
+cat("\n\nLandmark time point:",LM,"\n\n")
+    LMdata <- cutLM(data=vdv,outcome=list(time="time",status="status"),
+        LM=LM,horizon=LM+w,
+        covs=list(fixed=paste("CVPI",c("gen",paste("LM",0:5,sep="")),sep="."),timedep=NULL))
+deb(dim(LMdata))
+    cgen <- coxph(Surv(LM,time,status)~CVPI.gen, data=LMdata, method="breslow")
+print(data.frame(chisq=round(2*diff(cgen$loglik),3)))
+    form <- as.formula(paste("Surv(LM,time,status)",paste("CVPI.LM",LM,sep=""),sep="~"))
+    cLM <- coxph(form, data=LMdata, method="breslow")
+print(data.frame(chisq=round(2*diff(cLM$loglik),3)))
+}
+
+# For last landmark data set, use CVPI.LM4
+cLM <- coxph(Surv(LM,time,status)~CVPI.LM4, data=LMdata, method="breslow")
+data.frame(chisq=round(2*diff(cLM$loglik),3))
+
+###############################################################################
+###############################################################################
+### Table 12.6: Comparison of model chi^2 for different approaches,
+### using the clinical data
+###############################################################################
+###############################################################################
+
+### First calculate the cross-validated prognostic indices for each LM data set
+LMs <- seq(0,5,by=1)
+w <- 5
+
+for (i in 1:length(LMs)) {
+    LM <- LMs[i]
+cat("\n\nLandmark time point:",LM,"\n\n")
+    LMdata <- cutLM(data=nki,outcome=list(time="tyears",status="d"),
+        LM=LM,horizon=LM+w,
+        covs=list(fixed=c("chemotherapy","hormonaltherapy","typesurgery","histolgrade","vasc.invasion","diameter","posnodes","age","mlratio"),timedep=NULL))
+deb(dim(LMdata))
+    print(LMdata[1:6,1:8])
+    ni <- nrow(LMdata)
+    CVPI.clin.LM <- rep(NA,ni)
+
+    for (j in 1:ni) {
+      # leave i out
+      ci <- coxph(Surv(tyears,d) ~ chemotherapy + hormonaltherapy + typesurgery +
+        histolgrade + vasc.invasion + diameter + posnodes + age + mlratio, data=LMdata[-j,], method="breslow")
+      sfi <- survfit(ci, newdata=LMdata[j,])
+      # need to evaluate S at LM+w, which is always the last time point (due to administrative censoring),
+      # hence has the lowest survival
+      CVPI.clin.LM[j] <- log(-log(min(sfi$surv)))
+    }
+    CVPI.clin.LM <- CVPI.clin.LM-mean(CVPI.clin.LM)
+
+    add <- rep(NA,n)
+    nm <- paste("CVPIclin.LM",LM,sep="")
+    add[match(LMdata$patnr,nki$patnr)] <- CVPI.clin.LM
+    vdv <- cbind(vdv,add)
+    names(vdv)[ncol(vdv)] <- nm
+}
+
+### Cox models on the landmark data sets
+LMs <- seq(0,5,by=1)
+w <- 5
+
+for (i in 1:length(LMs)) {
+    LM <- LMs[i]
+cat("\n\nLandmark time point:",LM,"\n\n")
+    LMdata <- cutLM(data=vdv,outcome=list(time="time",status="status"),
+        LM=LM,horizon=LM+w,
+        covs=list(fixed=c("CVPI.clin",paste("CVPIclin",paste("LM",0:5,sep=""),sep=".")),timedep=NULL))
+deb(dim(LMdata))
+    cclin <- coxph(Surv(LM,time,status)~CVPI.clin, data=LMdata, method="breslow")
+print(data.frame(chisq=round(2*diff(cclin$loglik),3)))
+    form <- as.formula(paste("Surv(LM,time,status)",paste("CVPIclin.LM",LM,sep=""),sep="~"))
+    cclinLM <- coxph(form, data=LMdata, method="breslow")
+print(data.frame(chisq=round(2*diff(cclinLM$loglik),3)))
+}
+
+### Clinical and genomic information combined
+# Cox models on the landmark data sets
+LMs <- seq(0,5,by=1)
+w <- 5
+
+for (i in 1:length(LMs)) {
+    LM <- LMs[i]
+cat("\n\nLandmark time point:",LM,"\n\n")
+    LMdata <- cutLM(data=vdv,outcome=list(time="time",status="status"),
+        LM=LM,horizon=LM+w,
+        covs=list(fixed=c("CVPI.clin",paste("CVPIclin",paste("LM",0:5,sep=""),sep="."),
+                        paste("CVPI",c("gen",paste("LM",0:5,sep="")),sep=".")),timedep=NULL))
+deb(dim(LMdata))
+    cboth <- coxph(Surv(LM,time,status)~CVPI.clin+CVPI.gen, data=LMdata, method="breslow")
+print(data.frame(chisq=round(2*diff(cboth$loglik),3)))
+    form <- as.formula(paste("Surv(LM,time,status)",paste("CVPI.clin",paste("CVPI.LM",LM,sep=""),sep="+"),sep="~"))
+    cbothLM <- coxph(form, data=LMdata, method="breslow")
+print(data.frame(chisq=round(2*diff(cbothLM$loglik),3)))
+}
+
+```
+

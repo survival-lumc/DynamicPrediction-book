@@ -1,0 +1,387 @@
+---
+execute:
+  eval: false
+---
+
+# Cox regression model
+
+This file contains R code for the analyses in Chapter 13 of the book Dynamic Prediction in Clinical Survival Analysis (CRC Chapman & Hall) by Hans C. van Houwelingen and Hein Putter
+
+R code written by Hein Putter (H.Putter@lumc.nl for comments/questions)
+The dynpred package is available from CRAN
+
+Consistency with the book has been checked with
+- R version 2.14.0
+- survival version 2.36-10
+- dynpred version 0.1.1
+
+```{r}
+#| label: figbla
+
+library(dynpred)
+
+###############################################################################
+###############################################################################
+##### A1
+###############################################################################
+###############################################################################
+
+data(ova)
+
+###############################################################################
+### Figure A.1: Survival and censoring functions for Data Set 1
+###############################################################################
+
+# Kaplan-Meier plots for survival and censoring
+ova.km <- survfit(formula = Surv(tyears, d) ~ 1, data = ova)
+ova.cens <- survfit(formula = Surv(tyears, d==0) ~ 1, data = ova)
+
+oldpar <- par(no.readonly=TRUE) # save graphical parameters
+# Plot
+layout(matrix(1:2, 1, 2),widths=c(10.25,9))
+par(mar= c(5, 4, 4, 0.1) + 0.1)
+plot(ova.km, mark.time= FALSE, conf.int=FALSE, lwd=2, xlim=c(0,7.8),
+    xlab = "Time (years)", ylab = "Probability")
+title(main="Survival")
+par(mar= c(5, 0.1, 4, 1) + 0.1)
+plot(ova.cens, mark.time=FALSE, conf.int=FALSE, lwd=2, xlim=c(0,7.8),
+    xlab = "Time (years)", ylab = "", axes=FALSE)
+axis(1)
+box()
+title(main="Censoring")
+par(oldpar) # reset graphical parameters
+
+###############################################################################
+### Table A.1: The clinical risk factors and their univariate effects on
+### survival in Data Set 1
+###############################################################################
+
+table(ova$FIGO)
+coxph(Surv(tyears, d) ~ FIGO, data = ova, method="breslow")
+table(ova$Diam)
+coxph(Surv(tyears, d) ~ Diam, data = ova, method="breslow")
+table(ova$Broders)
+coxph(Surv(tyears, d) ~ Broders, data = ova, method="breslow")
+table(ova$Ascites)
+coxph(Surv(tyears, d) ~ Ascites, data = ova, method="breslow")
+ova$Karn100 <- 10*ova$Karn
+ova$Karn100 <- factor(ova$Karn100, levels=seq(100,60,length=5), labels=seq(100,60,length=5))
+coxph(Surv(tyears, d) ~ Karn100, data = ova, method="breslow")
+
+###############################################################################
+###############################################################################
+##### A2
+###############################################################################
+###############################################################################
+
+data(wbc1)
+
+###############################################################################
+### Table A.2: The clinical risk factors and their effects on survival
+### in Data Set 2
+###############################################################################
+
+summary(wbc1$age)
+coxph(Surv(tyears,d) ~ age, data=wbc1, method="breslow")
+summary(wbc1$sokal)
+coxph(Surv(tyears,d) ~ sokal, data=wbc1, method="breslow")
+
+###############################################################################
+### Figure A.2: Survival and censoring functions for Data Set 2
+###############################################################################
+
+# Kaplan-Meier plots for survival and censoring
+wbc.km <- survfit(formula = Surv(tyears, d) ~ 1, data = wbc1)
+wbc.cens <- survfit(formula = Surv(tyears, d==0) ~ 1, data = wbc1)
+
+# Plot
+layout(matrix(1:2, 1, 2),widths=c(10.25,9))
+par(mar= c(5, 4, 4, 0.1) + 0.1)
+plot(wbc.km, mark.time= FALSE, conf.int=FALSE, lwd=2, xlim=c(0,8.5),
+    xlab = "Time (years)", ylab = "Probability")
+title(main="Survival")
+par(mar= c(5, 0.1, 4, 1) + 0.1)
+plot(wbc.cens, mark.time=FALSE, conf.int=FALSE, lwd=2, xlim=c(0,8.5),
+    xlab = "Time (years)", ylab = "", axes=FALSE)
+axis(1)
+box()
+title(main="Censoring")
+par(oldpar) # reset graphical parameters
+
+###############################################################################
+###############################################################################
+##### A3
+###############################################################################
+###############################################################################
+
+data(nki)
+
+###############################################################################
+### Table A.3: The clinical risk factors and their effects on survival
+### in Data Set 3
+###############################################################################
+
+table(nki$chemotherapy)
+coxph(Surv(tyears, d) ~ chemotherapy, data = nki, method="breslow")
+table(nki$hormonaltherapy)
+coxph(Surv(tyears, d) ~ hormonaltherapy, data = nki, method="breslow")
+table(nki$typesurgery)
+coxph(Surv(tyears, d) ~ typesurgery, data = nki, method="breslow")
+table(nki$histolgrade)
+coxph(Surv(tyears, d) ~ histolgrade, data = nki, method="breslow")
+table(nki$vasc.invasion)
+coxph(Surv(tyears, d) ~ vasc.invasion, data = nki, method="breslow")
+summary(nki$diameter)
+coxph(Surv(tyears, d) ~ diameter, data = nki, method="breslow")
+summary(nki$posnodes)
+coxph(Surv(tyears, d) ~ posnodes, data = nki, method="breslow")
+summary(nki$age)
+coxph(Surv(tyears, d) ~ age, data = nki, method="breslow")
+summary(nki$mlratio)
+coxph(Surv(tyears, d) ~ mlratio, data = nki, method="breslow")
+
+###############################################################################
+### Figure A.3: Survival and censoring functions for Data Set 3
+###############################################################################
+
+# Kaplan-Meier plots for survival and censoring
+nki.km <- survfit(formula = Surv(tyears, d) ~ 1, data = nki)
+nki.cens <- survfit(formula = Surv(tyears, d==0) ~ 1, data = nki)
+
+# Plot
+layout(matrix(1:2, 1, 2),widths=c(10.25,9))
+par(mar= c(5, 4, 4, 0.1) + 0.1)
+plot(nki.km, mark.time= FALSE, conf.int=FALSE, lwd=2,
+    xlab = "Time (years)", ylab = "Probability")
+title(main="Survival")
+par(mar= c(5, 0.1, 4, 1) + 0.1)
+plot(nki.cens, mark.time=FALSE, conf.int=FALSE, lwd=2,
+    xlab = "Time (years)", ylab = "", axes=FALSE)
+axis(1)
+box()
+title(main="Censoring")
+par(oldpar) # reset graphical parameters
+
+###############################################################################
+###############################################################################
+##### A4 (data not publicly available)
+###############################################################################
+###############################################################################
+
+###############################################################################
+###############################################################################
+##### A5 (data available at EORTC)
+###############################################################################
+###############################################################################
+
+# Read in data (and provide labels); data and syntax should be in working directory for this to work
+source("bc syntax.R")
+
+###############################################################################
+### Figure A.7: Survival and censoring functions for Data Set 5
+###############################################################################
+
+### Kaplan-Meier plots for survival and censoring
+bc.km <- survfit(formula = Surv(survyrs, survstat==1) ~ 1, data = bc)
+bc.cens <- survfit(formula = Surv(survyrs, survstat==0) ~ 1, data = bc)
+
+# Plot
+layout(matrix(1:2, 1, 2),widths=c(10.25,9))
+par(mar= c(5, 4, 4, 0.1) + 0.1)
+plot(bc.km, mark.time= FALSE, conf.int=FALSE, lwd=2, xlab = "Years since surgery", ylab = "Probability")
+title(main="Overall survival")
+par(mar= c(5, 0.1, 4, 1) + 0.1)
+plot(bc.cens, mark.time=FALSE, conf.int=FALSE, lwd=2, xlab = "Years since surgery", ylab = "", axes=FALSE)
+axis(1,at=seq(0,14,by=2))
+box()
+title(main="Censoring")
+par(oldpar) # reset graphical parameters
+
+###############################################################################
+### Figure A.8: Estimated proportions of patients at risk with a history of
+### local recurrence and distant metastasis for Data Set 5
+###############################################################################
+
+### Estimation of prevalence of LR and/or DM
+
+# Simultaneous LR+DM occurrences, DM after LR, and LR after DM are grouped in state LR+DM
+bc$lrdmyrs <- pmax(bc$lrecyrs,bc$distyrs)
+bc$lrdmstat <- pmin(bc$lrecstat,bc$diststat)
+
+tt <- sort(c(bc$lrecyrs,bc$distyrs))
+atrisk <- outer(bc$survyrs,tt,"-")
+atrisk[atrisk>=0] <- 1
+atrisk[atrisk<0] <- 0
+lr <- outer(bc$lrecyrs,tt,"-")
+lr[bc$lrecstat==0,] <- 999
+lr[lr<=0] <- -1
+lr[lr>0] <- 0
+lr <- -lr
+dm <- outer(bc$distyrs,tt,"-")
+dm[bc$diststat==0,] <- 999
+dm[dm<=0] <- -1
+dm[dm>0] <- 0
+dm <- -dm
+lrdm <- outer(bc$lrdmyrs,tt,"-")
+lrdm[bc$lrdmstat==0,] <- 999
+lrdm[lrdm<=0] <- -1
+lrdm[lrdm>0] <- 0
+lrdm <- -lrdm
+
+lr <- apply(lr * atrisk,2,sum)
+dm <- apply(dm * atrisk,2,sum)
+lrdm <- apply(lrdm * atrisk,2,sum)
+atrisk <- apply(atrisk,2,sum)
+
+lr <- lr - lrdm # LR only
+dm <- dm - lrdm # DM only
+
+lr <- lr/atrisk
+dm <- dm/atrisk
+lrdm <- lrdm/atrisk
+
+# Cut off irregularities at the end
+lr <- lr[tt<13.5]
+dm <- dm[tt<13.5]
+lrdm <- lrdm[tt<13.5]
+tt <- tt[tt<13.5]
+
+# Plot
+plot(tt,lr,type="s",lwd=1,ylim=c(0,max(lr+lrdm+dm)),xlab="Time in years",ylab="Proportion of individuals")
+lines(tt,lr+lrdm,type="s",lwd=1)
+lines(tt,lr+lrdm+dm,type="s",lwd=1)
+text(10,0.025,"LR only",adj=0)
+text(10,0.075,"LR+DM",adj=0)
+text(10,0.15,"DM only",adj=0)
+
+###############################################################################
+### Table A.5: The clinical risk factors and their effects on survival
+### in Data Set 5
+###############################################################################
+
+table(bc$surgery)
+coxph(Surv(survyrs,survstat) ~ surgery, data=bc, method="breslow")
+table(bc$tusi)
+coxph(Surv(survyrs,survstat) ~ tusi, data=bc, method="breslow")
+table(bc$nodal)
+coxph(Surv(survyrs,survstat) ~ nodal, data=bc, method="breslow")
+table(bc$age50)
+coxph(Surv(survyrs,survstat) ~ age50, data=bc, method="breslow")
+table(bc$adjchem)
+coxph(Surv(survyrs,survstat) ~ adjchem, data=bc, method="breslow")
+table(bc$tam)
+coxph(Surv(survyrs,survstat) ~ tam, data=bc, method="breslow")
+table(bc$periop)
+coxph(Surv(survyrs,survstat) ~ periop, data=bc, method="breslow")
+
+###############################################################################
+###############################################################################
+##### A6
+###############################################################################
+###############################################################################
+
+data(ALL)
+
+###############################################################################
+### Figure A.9: Survival and censoring functions for Data Set 6
+###############################################################################
+
+### (Relapse-free) survival and censoring curves
+
+ALL.cens <- survfit(formula = Surv(srv, srv.s==0) ~ 1, data = ALL)
+
+ALL$rfs <- pmin(ALL$rel,ALL$srv)
+ALL$rfs.s <- pmax(ALL$rel.s,ALL$srv.s)
+
+ALL$rfs.cr <- 0
+ALL$rfs.cr[ALL$rel.s==1] <- 1
+ALL$rfs.cr[ALL$srv.s==1 & ALL$rfs==ALL$srv] <- 2
+
+library(mstate)
+ci <- Cuminc(ALL$rfs,ALL$rfs.cr)
+ci$time <- ci$time/365.25
+
+layout(matrix(1:2, 1, 2),widths=c(10.25,9))
+par(mar= c(5, 4, 4, 0.1) + 0.1)
+plot(ci$time,1-ci$CI.1,type="s",lwd=1.5,col=1,xlim=c(0,14),ylim=c(0,1),xlab="Years since transplantation",ylab="Probability")
+lines(ci$time,1-ci$CI.1-ci$CI.2,type="s",lwd=2)
+text(14,1 - max(ci$CI.1)/2,"Relapse",adj=1,cex=0.75)
+text(14,1 - max(ci$CI.1) - max(ci$CI.2)/2,"Death",adj=1,cex=0.75)
+text(14,min(ci$Surv)/2,"RFS",adj=1,cex=0.75)
+title(main="Relapse-free survival")
+par(mar= c(5, 0.1, 4, 1) + 0.1)
+plot(ALL.cens, mark.time=FALSE, conf.int=FALSE, lwd=2, xlim=c(0,14), xscale=365.25, xlab = "Years since transplantation", ylab = "", axes=FALSE)
+axis(1,at=seq(0,14,by=2))
+box()
+title(main="Censoring")
+par(oldpar) # reset graphical parameters
+
+###############################################################################
+### Table A.6: Prognostic factors and their univariate effects on relapse-free
+### survival in Data Set 6
+###############################################################################
+
+table(ALL$year)
+coxph(Surv(rfs,rfs.s) ~ year, data=ALL)
+table(ALL$agecl)
+coxph(Surv(rfs,rfs.s) ~ agecl, data=ALL)
+table(ALL$tcd)
+coxph(Surv(rfs,rfs.s) ~ tcd, data=ALL)
+table(ALL$match)
+coxph(Surv(rfs,rfs.s) ~ match, data=ALL)
+
+###############################################################################
+### Figure A.10: Estimated proportions of patients at risk with a history of
+### platelet recovery and acute GvHD for Data Set 6
+###############################################################################
+
+### Proportions of patients at risk with a history of platelet recovery and AGvHD
+
+tt <- sort(c(ALL$rec,ALL$ae))
+atrisk <- outer(ALL$rfs,tt,"-")
+atrisk[atrisk>=0] <- 1
+atrisk[atrisk<0] <- 0
+rec <- outer(ALL$rec,tt,"-")
+rec[ALL$rec.s==0,] <- 999
+rec[rec<=0] <- -1
+rec[rec>0] <- 0
+rec <- -rec
+ae <- outer(ALL$ae,tt,"-")
+ae[ALL$ae.s==0,] <- 999
+ae[ae<=0] <- -1
+ae[ae>0] <- 0
+ae <- -ae
+recae <- outer(ALL$recae,tt,"-")
+recae[ALL$recae.s==0,] <- 999
+recae[recae<=0] <- -1
+recae[recae>0] <- 0
+recae <- -recae
+
+rec <- apply(rec * atrisk,2,sum)
+ae <- apply(ae * atrisk,2,sum)
+recae <- apply(recae * atrisk,2,sum)
+atrisk <- apply(atrisk,2,sum)
+
+rec <- rec - recae # PR only
+ae <- ae - recae # AGvHD only
+
+rec <- rec/atrisk
+ae <- ae/atrisk
+recae <- recae/atrisk
+# Because of some irregularities at the end
+tt <- tt/365.25 # Time in years
+rec <- rec[tt<14]
+ae <- ae[tt<14]
+recae <- recae[tt<14]
+tt <- tt[tt<14]
+
+# Plot
+plot(tt,rec,type="s",lwd=1,ylim=c(0,1),xlab="Time in years",ylab="Proportion of individuals")
+lines(tt,rec+recae,type="s",lwd=1)
+lines(tt,rec+recae+ae,type="s",lwd=1)
+text(14,0.1,"PR only",adj=1)
+text(14,0.33,"PR+AGvHD",adj=1)
+text(14,0.6,"AGvHD only",adj=1)
+
+```
+

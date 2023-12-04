@@ -1,0 +1,853 @@
+---
+execute:
+  eval: false
+---
+
+# Dynamic prediction in multi-state models
+
+This file contains R code for the analyses in Chapter 9 of the book Dynamic Prediction in Clinical Survival Analysis (CRC Chapman & Hall) by Hans C. van Houwelingen and Hein Putter
+
+R code written by Hein Putter (H.Putter@lumc.nl for comments/questions)
+The dynpred package is available from CRAN
+
+Consistency with the book has been checked with
+- R version 2.14.0
+- survival version 2.36-10
+- dynpred version 0.1.1
+
+
+```{r}
+#| label: figbla
+
+###############################################################################
+###############################################################################
+### Section 9.3: Application (ALL data)
+###############################################################################
+###############################################################################
+
+require(dynpred)
+require(mstate)
+data(ALL)
+
+year <- 365.25
+month <- year/12
+
+###############################################################################
+###############################################################################
+### Table 9.1: Cox regression for death and/or relapse
+###############################################################################
+###############################################################################
+
+### To construct this table, a new data set needs to be constructed containing
+### the time-dependent covariates (recent) AGvHD and PR, in long format.
+### This can be done from scratch; here the mstate package is used, in
+### particular the function msprep(). For this to work we need to define
+### a multi-state model with AGvHD and PR + 30 days as new events
+transListn <- list(
+  "Tx" = c(2, 4, 10, 11),
+  "A" = c(3, 6, 10, 11),
+  "A30" = c(7, 10, 11),
+  "R" = c(5, 6, 10, 11),
+  "R30" = c(8, 10, 11),
+  "AR" = c(7, 8, 10, 11),
+  "A30R" = c(9, 10, 11),
+  "AR30" = c(9, 10, 11),
+  "A30R30" = c(10, 11),
+  "Rel" = c(),
+  "Death" = c())
+tmat <- transMat(transListn)
+tmat
+
+# Define RFS (minimum of relapse and death)
+ALL$rfs <- pmin(ALL$rel,ALL$srv)
+ALL$rfs.s <- pmax(ALL$rel.s,ALL$srv.s)
+# Define "new states" as recovery and/or AE plus one month
+ALL$r30 <- ALL$rec + month
+ALL$r30.s <- ALL$rec.s
+ALL$a30 <- ALL$ae + month
+ALL$a30.s <- ALL$ae.s
+ALL$ar <- pmax(ALL$ae,ALL$rec) # already in data (as recae)
+ALL$ar.s <- pmin(ALL$ae.s,ALL$rec.s) # already in data (as recae.s)
+ALL$a30r <- pmax(ALL$a30,ALL$rec)
+ALL$a30r.s <- pmin(ALL$ae.s,ALL$rec.s)
+ALL$ar30 <- pmax(ALL$ae,ALL$r30)
+ALL$ar30.s <- pmin(ALL$ae.s,ALL$rec.s)
+ALL$a30r30 <- pmax(ALL$a30,ALL$r30)
+ALL$a30r30.s <- pmin(ALL$ae.s,ALL$rec.s)
+# These newly defined a30 etc should never go beyond end of follow-up
+wh <- which(ALL$r30>ALL$rfs)
+ALL$r30.s[wh] <- 0
+ALL$r30[wh] <- ALL$rfs[wh]
+wh <- which(ALL$a30>ALL$rfs)
+ALL$a30.s[wh] <- 0
+ALL$a30[wh] <- ALL$rfs[wh]
+wh <- which(ALL$a30r>ALL$rfs)
+ALL$a30r.s[wh] <- 0
+ALL$a30r[wh] <- ALL$rfs[wh]
+wh <- which(ALL$ar30>ALL$rfs)
+ALL$ar30.s[wh] <- 0
+ALL$ar30[wh] <- ALL$rfs[wh]
+wh <- which(ALL$a30r30>ALL$rfs)
+ALL$a30r30.s[wh] <- 0
+ALL$a30r30[wh] <- ALL$rfs[wh]
+# covariates
+covs <- c("year","agecl","proph","match")
+
+ALL2 <- msprep(
+  time=c(NA,"ae","a30","rec","r30","ar","a30r","ar30","a30r30","rel","srv"),
+  status=c(NA,"ae.s","a30.s","rec.s","r30.s","ar.s","a30r.s","ar30.s","a30r30.s","rel.s","srv.s"),
+  data=ALL, trans=tmat, keep=covs)
+
+# We are now going to add the values of the time-dependent covariates in the
+# ALL2 data
+ALL2$A <- ALL2$recA <- ALL2$R <- ALL2$recR <- 0
+ALL2$A[ALL2$from %in% c(2,3,6,7,8,9)] <- 1
+ALL2$recA[ALL2$from %in% c(2,6,8)] <- 1
+ALL2$R[ALL2$from %in% 4:9] <- 1
+ALL2$recR[ALL2$from %in% c(4,6,7)] <- 1
+# For time-dependent Cox regression we are only interested in transitions
+# into either relapse or death
+### First relapse
+ALL2Rel <- ALL2[ALL2$to==10,]
+ALL2Rel <- ALL2Rel[!is.na(ALL2Rel$id),]
+c1Rel <- coxph(
+  Surv(Tstart,Tstop,status) ~ match + proph + year + agecl + A + recA + R + recR,
+  data = ALL2Rel, method="breslow")
+c1Rel
+### Then death
+ALL2Death <- ALL2[ALL2$to==11,]
+ALL2Death <- ALL2Death[!is.na(ALL2Death$id),]
+c1Death <- coxph(
+  Surv(Tstart,Tstop,status) ~ match + proph + year + agecl + A + recA + R + recR,
+  data = ALL2Death, method="breslow")
+c1Death
+### For RFS, we could either adapt ALL2, or (quicker) redefine ALL2
+### based on new transition matrix
+transListn <- list(
+  "Tx" = c(2, 4, 10),
+  "A" = c(3, 6, 10),
+  "A30" = c(7, 10),
+  "R" = c(5, 6, 10),
+  "R30" = c(8, 10),
+  "AR" = c(7, 8, 10),
+  "A30R" = c(9, 10),
+  "AR30" = c(9, 10),
+  "A30R30" = c(10),
+  "RelDeath" = c())
+tmat2 <- transMat(transListn)
+tmat2
+
+ALL2 <- msprep(
+  time=c(NA,"ae","a30","rec","r30","ar","a30r","ar30","a30r30","rfs"),
+  status=c(NA,"ae.s","a30.s","rec.s","r30.s","ar.s","a30r.s","ar30.s","a30r30.s","rfs.s"),
+  data=ALL, trans=tmat2, keep=covs)
+# Again add values of the time-dependent covariates in ALL2
+ALL2$A <- ALL2$recA <- ALL2$R <- ALL2$recR <- 0
+ALL2$A[ALL2$from %in% c(2,3,6,7,8,9)] <- 1
+ALL2$recA[ALL2$from %in% c(2,6,8)] <- 1
+ALL2$R[ALL2$from %in% 4:9] <- 1
+ALL2$recR[ALL2$from %in% c(4,6,7)] <- 1
+ALL2RFS <- ALL2[ALL2$to==10,]
+ALL2RFS <- ALL2RFS[!is.na(ALL2RFS$id),]
+
+c1 <- coxph(
+  Surv(Tstart,Tstop,status) ~ match + proph + year + agecl + A + recA + R + recR,
+  data = ALL2RFS, method="breslow")
+c1
+
+###############################################################################
+###############################################################################
+### Table 9.2: Cox regression for AGvHD and platelet recovery
+###############################################################################
+###############################################################################
+
+### Time-dependent Cox models for AGvHD and platelet recovery
+## AGvHD
+transListn <- list(
+  "Tx" = c(2, 4),
+  "R" = c(3, 4),
+  "R30" = c(4),
+  "A" = c()
+)
+tmat3 <- transMat(transListn)
+tmat3
+ALL3 <- msprep(
+  time=c(NA,"rec","r30","ae"),
+  status=c(NA,"rec.s","r30.s","ae.s"),
+  data=ALL, trans=tmat3, keep=covs)
+# Again add values of the time-dependent covariates in ALL3
+ALL3$R <- ALL3$recR <- 0
+ALL3$R[ALL3$from %in% c(2,3)] <- 1
+ALL3$recR[ALL3$from==2] <- 1
+ALL3s <- ALL3[ALL3$to==4,]
+# For some reason, two "Inf" values for Tstop and time (with status 0),
+# set to largest observed time
+ALL3s$Tstop[is.infinite(ALL3s$Tstop)] <- max(ALL3s$Tstop[!is.infinite(ALL3s$Tstop)])
+ALL3s$time <- ALL3s$Tstop - ALL3s$Tstart
+c2 <- coxph(
+  Surv(Tstart,Tstop,status) ~ match + proph + year + agecl + R + recR,
+  data = ALL3s, method="breslow")
+c2
+
+## Platelet recovery
+transListn <- list(
+  "Tx" = c(2, 4),
+  "A" = c(3, 4),
+  "A30" = c(4),
+  "R" = c()
+)
+tmat4 <- transMat(transListn)
+tmat4
+ALL4 <- msprep(
+  time=c(NA,"ae","a30","rec"),
+  status=c(NA,"ae.s","a30.s","rec.s"),
+  data=ALL, trans=tmat3, keep=covs)
+# Again add values of the time-dependent covariates in ALL4
+ALL4$A <- ALL4$recA <- 0
+ALL4$A[ALL4$from %in% c(2,3)] <- 1
+ALL4$recA[ALL4$from==2] <- 1
+ALL4s <- ALL4[ALL4$to==4,]
+
+c3 <- coxph(
+  Surv(Tstart,Tstop,status) ~ match + proph + year + agecl + A + recA,
+  data = ALL4s, method="breslow")
+c3
+
+###############################################################################
+###############################################################################
+### Figure 9.8: Cumulative baseline hazards for AGVHD, platelet recovery,
+### and for relapse and/or death
+###############################################################################
+###############################################################################
+
+### We have saved c1, c1Rel, c1Death, c2, c3, Cox models for RFS,
+### Relapse, Death, AE, and Rec, respectively
+### First fix a patient with reference values for the covariates
+### and 0 for all the time-dependent covariates; this will give the
+### baseline hazards
+ndata <- data.frame(match=1, proph=1, year=1, agecl=1, R=0, recR=0, A=0, recA=0)
+ndata$match <- factor(ndata$match, levels=1:2, labels=levels(ALL$match))
+ndata$proph <- factor(ndata$proph, levels=1:2, labels=levels(ALL$proph))
+ndata$year <- factor(ndata$year, levels=1:3, labels=levels(ALL$year))
+ndata$agecl <- factor(ndata$agecl, levels=1:3, labels=levels(ALL$agecl))
+ndata
+sf1Rel <- survfit(c1Rel, newdata=ndata, censor=FALSE)
+sf1Rel <- data.frame(time=sf1Rel$time,surv=sf1Rel$surv,Haz=-log(sf1Rel$surv))
+sf1Death <- survfit(c1Death, newdata=ndata, censor=FALSE)
+sf1Death <- data.frame(time=sf1Death$time,surv=sf1Death$surv,
+  Haz=-log(sf1Death$surv))
+sf1 <- survfit(c1, newdata=ndata, censor=FALSE)
+sf1 <- data.frame(time=sf1$time,surv=sf1$surv,Haz=-log(sf1$surv))
+sf2 <- survfit(c2, newdata=ndata, censor=FALSE)
+sf2 <- data.frame(time=sf2$time,surv=sf2$surv,Haz=-log(sf2$surv))
+# extend sf2 a little bit
+n2 <- nrow(sf2)
+sf2 <- rbind(sf2,data.frame(time=500,surv=sf2$surv[n2],Haz=sf2$Haz[n2]))
+sf3 <- survfit(c3, newdata=ndata, censor=FALSE)
+sf3 <- data.frame(time=sf3$time,surv=sf3$surv,Haz=-log(sf3$surv))
+
+## Plot baseline cumulative hazards
+
+maxHaz <- max(c(sf1$Haz,sf2$Haz,sf3$Haz))
+
+plot(sf1$time/365.25,sf1$Haz,type="s",lwd=2,
+  ylim=c(0,maxHaz),
+  xlab="Years since transplantation",ylab="Cumulative hazard")
+lines(sf1Rel$time/365.25,sf1Rel$Haz,type="s",lwd=2,lty=2)
+lines(sf1Death$time/365.25,sf1Death$Haz,type="s",lwd=2,lty=3)
+lines(sf2$time/365.25,sf2$Haz,type="s",lwd=2,lty=4)
+lines(sf3$time/365.25,sf3$Haz,type="s",lwd=2,lty=5)
+legend("topright",
+  c("Relapse or death","Relapse","Death"),
+  lwd=2,lty=1:3,bty="n")
+legend(2,0.68,
+  c("AGvHD","Platelet recovery"),
+  lwd=2,lty=4:5,bty="n")
+
+###################################################
+### Prediction by landmarking
+###################################################
+
+ALL$time <- pmin(ALL$rel,ALL$srv)
+ALL$status <- 0
+ALL$status[((ALL$rel<=ALL$srv) & (ALL$rel.s==1))] <- 1
+ALL$status[((ALL$srv<=ALL$rel) & (ALL$srv.s==1))] <- 2
+table(ALL$rel.s,ALL$srv.s,ALL$status)
+table(ALL$status)
+
+w <- 5*year
+covs <- c("year","agecl","proph","match")
+
+### Construct landmark data
+LMs <- seq(0,year,length=101)
+LMdata <- NULL
+for (i in seq(along=LMs)) {
+    LM <- LMs[i]
+    ALLi <- ALL[ALL$time>LM,]
+    R <- as.numeric(ALLi$rec<=LM)
+    A <- as.numeric(ALLi$ae<=LM)
+    recR <- as.numeric(ALLi$rec<=LM & ALLi$rec>LM-month)
+    recA <- as.numeric(ALLi$ae<=LM & ALLi$ae<=LM-month)
+    ALLi$status[ALLi$time>LM+w] <- 0
+    ALLi$time[ALLi$time>LM+w] <- LM+w
+    ALLicovs <- ALLi[,match(covs,names(ALLi))]
+    dfri <- data.frame(id=ALLi$id,time=ALLi$time,status=ALLi$status,
+      LM=LM,R=R,recR=recR,A=A,recA=recA)
+    dfri <- cbind(dfri,ALLicovs)
+    LMdata <- rbind(LMdata,dfri)
+}
+
+# Summaries
+dim(LMdata)
+table(table(LMdata$id))
+
+###############################################################################
+###############################################################################
+### Table 9.3: Landmark supermodel with proportional baseline hazards
+### for death and/or relapse, based on an equally spaced set of landmark
+### time-points from 0 to 1 with distance 0.01 and window width w = 5 years
+###############################################################################
+###############################################################################
+
+# For theta(s)
+g1 <- function(t) t
+g2 <- function(t) t^2
+LMdata$LM1 <- g1(LMdata$LM/year)
+LMdata$LM2 <- g2(LMdata$LM/year)
+
+### Landmark supermodels
+## First stratified (these are NOT included in the book)
+# Relapse
+LMcox1 <- coxph(Surv(time,status==1) ~ match + proph + year + agecl +
+    A + recA + R + recR + strata(LM) + cluster(id), data=LMdata)
+LMcox1
+# Death before relapse
+LMcox2 <- coxph(Surv(time,status==2) ~ match + proph + year + agecl +
+    A + recA + R + recR + strata(LM) + cluster(id), data=LMdata)
+LMcox2
+# RFS
+LMcox0 <- coxph(Surv(time,status>0) ~ match + proph + year + agecl +
+    A + recA + R + recR + strata(LM) + cluster(id), data=LMdata)
+LMcox0
+
+### Same thing, now with proportional baselines (ipl*)
+## Take three coffee breaks; this takes a while, because of the large stacked
+## landmark data set
+# Relapse
+LMcox1 <- coxph(Surv(time,status==1) ~ match + proph + year + agecl +
+  A + recA + R + recR + LM1 + LM2 + cluster(id),
+  data=LMdata)
+LMcox1
+# Death before relapse
+LMcox2 <- coxph(Surv(time,status==2) ~ match + proph + year + agecl +
+  A + recA + R + recR + LM1 + LM2 + cluster(id),
+  data=LMdata)
+LMcox2
+# RFS
+LMcox0 <- coxph(Surv(time,status>0) ~ match + proph + year + agecl +
+  A + recA + R + recR + LM1 + LM2 + cluster(id),
+  data=LMdata)
+LMcox0
+
+###############################################################################
+###############################################################################
+### Figure 9.9: Baseline hazard and landmark effects in the proportional
+### baselines landmark supermodel of Table 9.3
+###############################################################################
+###############################################################################
+
+# Baseline hazards (plot as in chapters 7 and 8)
+ndata <- data.frame(match=1, proph=1, year=1, agecl=1, R=0, recR=0, A=0, recA=0,
+  LM1=0, LM2=0)
+ndata$match <- factor(ndata$match, levels=1:2, labels=levels(ALL$match))
+ndata$proph <- factor(ndata$proph, levels=1:2, labels=levels(ALL$proph))
+ndata$year <- factor(ndata$year, levels=1:3, labels=levels(ALL$year))
+ndata$agecl <- factor(ndata$agecl, levels=1:3, labels=levels(ALL$agecl))
+ndata
+sf20 <- survfit(LMcox0, newdata=ndata, censor=FALSE)
+Haz20 <- data.frame(time=sf20$time,surv=sf20$surv)
+Haz20$Haz <- -log(Haz20$surv)
+sf20Rel <- survfit(LMcox1, newdata=ndata, censor=FALSE)
+Haz20Rel <- data.frame(time=sf20Rel$time,surv=sf20Rel$surv)
+Haz20Rel$Haz <- -log(Haz20Rel$surv)
+sf20Death <- survfit(LMcox2, newdata=ndata, censor=FALSE)
+Haz20Death <- data.frame(time=sf20Death$time,surv=sf20Death$surv)
+Haz20Death$Haz <- -log(Haz20Death$surv)
+
+oldpar <- par(no.readonly=TRUE) # save graphical parameters
+par(mfrow=c(1,2))
+par(mar=c(5,4,4,1.6)+0.1)
+plot(Haz20$time/year, Haz20$Haz, type="s", lwd=2,
+  xlab="Time (years)", ylab="Cumulative hazard")
+lines(Haz20Rel$time/year, Haz20Rel$Haz, type="s", lwd=2, lty=2)
+lines(Haz20Death$time/year, Haz20Death$Haz, type="s", lwd=2, lty=3)
+legend("topleft",c("RFS","Relapse","Death"),lwd=2,lty=1:3,bty="n")
+par(mar=c(5,3.6,4,2)+0.1)
+plot(LMs/year, exp(LMcox0$coef[11]*g1(LMs/year) + LMcox0$coef[12]*g2(LMs/year)),
+  type="l", lwd=2, ylim=c(0,1), xlab="Landmark (s)", ylab="exp(theta(s))")
+lines(LMs/year, exp(LMcox1$coef[11]*g1(LMs/year) + LMcox1$coef[12]*g2(LMs/year)),
+  type="l", lwd=2, lty=2)
+lines(LMs/year, exp(LMcox2$coef[11]*g1(LMs/year) + LMcox2$coef[12]*g2(LMs/year)),
+  type="l", lwd=2, lty=3)
+legend("topright",c("RFS","Relapse","Death"),lwd=2,lty=1:3,bty="n")
+par(oldpar) # reset graphical parameters
+
+###############################################################################
+###############################################################################
+### Figure 9.10 Landmark dynamic fixed width (w = 5) prediction probabilities
+### of relapse or death for all combinations of AGvHD and PR information
+###############################################################################
+###############################################################################
+
+w <- 5*year
+tt <- seq(0,year,length=101)
+nt <- length(tt)
+
+Fwpredict <- function(bet, Haz, w, tt)
+{
+    nt <- length(tt)
+    Haz$haz <- diff(c(0,Haz$Haz))
+    Fw <- data.frame(time=tt,Fw=NA)
+    for (i in 1:nt) {
+        sfi <- Haz # local copy
+        tti <- tt[i]
+        sfi$haz <- sfi$haz *
+          exp(bet[11]*g1(tt[i]/year) + bet[12]*g2(tt[i]/year))
+        sfi$Haz <- cumsum(sfi$haz)
+        tmp <- evalstep(sfi$time,sfi$Haz,c(tti,tti+w),subst=0)
+        Fw$Fw[i] <- 1-exp(-(tmp[2]-tmp[1]))
+    }
+    return(Fw)
+}
+# < 20
+Haz <- Haz20
+HazrecP <- HazP <- Haz
+HazrecP$Haz <- HazrecP$Haz*exp(LMcox0$coef[9]+LMcox0$coef[10])
+HazP$Haz <- HazP$Haz*exp(LMcox0$coef[9])
+HazrecA <- Haz
+HazrecA$Haz <- HazrecA$Haz*exp(LMcox0$coef[7]+LMcox0$coef[8])
+HazrecArecP <- HazrecAP <- HazrecA
+HazrecArecP$Haz <- HazrecArecP$Haz*exp(LMcox0$coef[9]+LMcox0$coef[10])
+HazrecAP$Haz <- HazrecAP$Haz*exp(LMcox0$coef[9])
+HazA <- Haz
+HazA$Haz <- HazA$Haz*exp(LMcox0$coef[7])
+HazArecP <- HazAP <- HazrecA
+HazArecP$Haz <- HazArecP$Haz*exp(LMcox0$coef[9]+LMcox0$coef[10])
+HazAP$Haz <- HazAP$Haz*exp(LMcox0$coef[9])
+Fw20 <- Fwpredict(LMcox0$coef, Haz, w, tt)
+Fw20recP <- Fwpredict(LMcox0$coef, HazrecP, w, tt)
+Fw20P <- Fwpredict(LMcox0$coef, HazP, w, tt)
+Fw20recA <- Fwpredict(LMcox0$coef, HazrecA, w, tt)
+Fw20recArecP <- Fwpredict(LMcox0$coef, HazrecArecP, w, tt)
+Fw20recAP <- Fwpredict(LMcox0$coef, HazrecAP, w, tt)
+Fw20A <- Fwpredict(LMcox0$coef, HazA, w, tt)
+Fw20ArecP <- Fwpredict(LMcox0$coef, HazArecP, w, tt)
+Fw20AP <- Fwpredict(LMcox0$coef, HazAP, w, tt)
+# 20-40
+Haz <- Haz20
+Haz$Haz <- Haz$Haz*exp(LMcox0$coef[5])
+HazrecP <- HazP <- Haz
+HazrecP$Haz <- HazrecP$Haz*exp(LMcox0$coef[9]+LMcox0$coef[10])
+HazP$Haz <- HazP$Haz*exp(LMcox0$coef[9])
+HazrecA <- Haz
+HazrecA$Haz <- HazrecA$Haz*exp(LMcox0$coef[7]+LMcox0$coef[8])
+HazrecArecP <- HazrecAP <- HazrecA
+HazrecArecP$Haz <- HazrecArecP$Haz*exp(LMcox0$coef[9]+LMcox0$coef[10])
+HazrecAP$Haz <- HazrecAP$Haz*exp(LMcox0$coef[9])
+HazA <- Haz
+HazA$Haz <- HazA$Haz*exp(LMcox0$coef[7])
+HazArecP <- HazAP <- HazrecA
+HazArecP$Haz <- HazArecP$Haz*exp(LMcox0$coef[9]+LMcox0$coef[10])
+HazAP$Haz <- HazAP$Haz*exp(LMcox0$coef[9])
+Fw2040 <- Fwpredict(LMcox0$coef, Haz, w, tt)
+Fw2040recP <- Fwpredict(LMcox0$coef, HazrecP, w, tt)
+Fw2040P <- Fwpredict(LMcox0$coef, HazP, w, tt)
+Fw2040recA <- Fwpredict(LMcox0$coef, HazrecA, w, tt)
+Fw2040recArecP <- Fwpredict(LMcox0$coef, HazrecArecP, w, tt)
+Fw2040recAP <- Fwpredict(LMcox0$coef, HazrecAP, w, tt)
+Fw2040A <- Fwpredict(LMcox0$coef, HazA, w, tt)
+Fw2040ArecP <- Fwpredict(LMcox0$coef, HazArecP, w, tt)
+Fw2040AP <- Fwpredict(LMcox0$coef, HazAP, w, tt)
+# >40
+Haz <- Haz20
+Haz$Haz <- Haz$Haz*exp(LMcox0$coef[6])
+HazrecP <- HazP <- Haz
+HazrecP$Haz <- HazrecP$Haz*exp(LMcox0$coef[9]+LMcox0$coef[10])
+HazP$Haz <- HazP$Haz*exp(LMcox0$coef[9])
+HazrecA <- Haz
+HazrecA$Haz <- HazrecA$Haz*exp(LMcox0$coef[7]+LMcox0$coef[8])
+HazrecArecP <- HazrecAP <- HazrecA
+HazrecArecP$Haz <- HazrecArecP$Haz*exp(LMcox0$coef[9]+LMcox0$coef[10])
+HazrecAP$Haz <- HazrecAP$Haz*exp(LMcox0$coef[9])
+HazA <- Haz
+HazA$Haz <- HazA$Haz*exp(LMcox0$coef[7])
+HazArecP <- HazAP <- HazrecA
+HazArecP$Haz <- HazArecP$Haz*exp(LMcox0$coef[9]+LMcox0$coef[10])
+HazAP$Haz <- HazAP$Haz*exp(LMcox0$coef[9])
+Fw40 <- Fwpredict(LMcox0$coef, Haz, w, tt)
+Fw40recP <- Fwpredict(LMcox0$coef, HazrecP, w, tt)
+Fw40P <- Fwpredict(LMcox0$coef, HazP, w, tt)
+Fw40recA <- Fwpredict(LMcox0$coef, HazrecA, w, tt)
+Fw40recArecP <- Fwpredict(LMcox0$coef, HazrecArecP, w, tt)
+Fw40recAP <- Fwpredict(LMcox0$coef, HazrecAP, w, tt)
+Fw40A <- Fwpredict(LMcox0$coef, HazA, w, tt)
+Fw40ArecP <- Fwpredict(LMcox0$coef, HazArecP, w, tt)
+Fw40AP <- Fwpredict(LMcox0$coef, HazAP, w, tt)
+
+# Prepare everything in single data set, to make nice (trellis) picture
+Fwall <- rbind(Fw20,Fw2040,Fw40,Fw20recP,Fw2040recP,Fw40recP,Fw20P,Fw2040P,Fw40P,
+  Fw20recA,Fw2040recA,Fw40recA,Fw20recArecP,Fw2040recArecP,Fw40recArecP,Fw20recAP,Fw2040recAP,Fw40recAP,
+  Fw20A,Fw2040A,Fw40A,Fw20ArecP,Fw2040ArecP,Fw40ArecP,Fw20AP,Fw2040AP,Fw40AP)
+Fwall$time <- Fwall$time/year
+Fwall$age <- rep(rep(1:3,rep(101,3)),9)
+Fwall$A <- rep(1:3,rep(101*9,3))
+Fwall$P <- rep(rep(1:3,rep(101*3,3)),3)
+Fwall$AP <- 3*(4-Fwall$A) + Fwall$P
+Fwall$AP <- factor(Fwall$AP,
+  labels=c("Past AGvHD, no PR","Past AGvHD, recent PR","Past AGvHD, past PR",
+    "Recent AGvHD, no PR","Recent AGvHD, recent PR","Recent AGvHD, past PR",
+    "No AGvHD, no PR","No AGvHD, recent PR","No AGvHD, past PR"))
+Fwall$age <- factor(Fwall$age,labels=c("Age <= 20","Age 20-40","Age > 40"))
+
+require(lattice)
+key.age <- list(text = list(levels(Fwall$age)),
+    lines = list(lwd = 2, lty = 1:3, col = "black"))
+xyplot(Fw ~ time | AP, data=Fwall, groups=age, ylim=c(0,1), lwd=2, type="l", col=1, lty=1:3,
+  xlab="Prediction time (years)",ylab="Probability of relapse or death", key=key.age)
+
+###############################################################################
+###############################################################################
+### Figure 9.11: Landmark dynamic fixed width (w = 5) prediction probabilities
+### of relapse or death for a patient as intermediate clinical events occur
+###############################################################################
+###############################################################################
+
+# Example: patient $>40$ years old; with platelet recovery after 30 days, AGvHD after 80 days
+plot(Fw40$time[1:9]/year,Fw40$Fw[1:9],type="l",lwd=2,xlim=c(0,1),ylim=c(0,1),
+    xlab="Prediction time (years)", ylab="Probability of relapse/death within 5 years")
+lines(rep(Fw40$time[9]/year,2),c(Fw40$Fw[9],Fw40recP$Fw[9]),lty=2)
+lines(Fw40recP$time[9:17]/year,Fw40recP$Fw[9:17],type="l",lwd=2)
+lines(rep(Fw40recP$time[17]/year,2),c(Fw40recP$Fw[17],Fw40P$Fw[17]),lty=2)
+lines(Fw40P$time[17:22]/year,Fw40P$Fw[17:22],type="l",lwd=2)
+lines(rep(Fw40P$time[22]/year,2),c(Fw40P$Fw[22],Fw40recAP$Fw[22]),lty=2)
+lines(Fw40recAP$time[22:31]/year,Fw40recAP$Fw[22:31],type="l",lwd=2)
+lines(rep(Fw40recAP$time[31]/year,2),c(Fw40recAP$Fw[31],Fw40AP$Fw[31]),lty=2)
+lines(Fw40AP$time[31:101]/year,Fw40AP$Fw[31:101],type="l",lwd=2)
+
+### Simulation-based "calculation" of transition probabilities
+###
+### This is similar to mssample in mstate, but we cannot use that,
+### because of the distinction between recent-intermediate event
+### and intermediate event; functions are defined in
+### "sample function definitions.r", which needs to be placed in the
+### working directory.
+
+source("sample function definitions.r")
+
+### The code is given below, but the actual sampling command
+### (Events <- Msample(sfM,M,tcond=0,c1,c2,c3)) is commented out.
+### The main reason for this is that it takes a very long time.
+### Unfortunately, I forgot to set a random seed when I started
+### the simulations for the book, so exact reproduction is impossible,
+### I'm afraid. The results of the original simulations were saved in
+### text files "events20.txt", "events2040.txt", and "events40.txt".
+### These are read in and used in the sequel. They also need to be
+### placed in the working directory.
+
+### Age <= 20
+ndata <- data.frame(match=1, proph=1, year=1, agecl=1, R=0, recR=0, A=0, recA=0)
+ndata$match <- factor(ndata$match, levels=1:2, labels=levels(ALL$match))
+ndata$proph <- factor(ndata$proph, levels=1:2, labels=levels(ALL$proph))
+ndata$year <- factor(ndata$year, levels=1:3, labels=levels(ALL$year))
+ndata$agecl <- factor(ndata$agecl, levels=1:3, labels=levels(ALL$agecl))
+ndata
+sf1 <- survfit(c1, newdata=ndata, censor=FALSE)
+sf1 <- data.frame(time=sf1$time,surv=sf1$surv,Haz=-log(sf1$surv))
+sf2 <- survfit(c2, newdata=ndata, censor=FALSE)
+sf2 <- data.frame(time=sf2$time,surv=sf2$surv,Haz=-log(sf2$surv))
+sf3 <- survfit(c3, newdata=ndata, censor=FALSE)
+sf3 <- data.frame(time=sf3$time,surv=sf3$surv,Haz=-log(sf3$surv))
+
+# Combine sf's into one
+sf1$trans <- 1; sf2$trans <- 2; sf3$trans <- 3
+sfM <- rbind(sf1,sf2,sf3)
+
+# M <- 100000
+# Events <- Msample(sfM,M,tcond=0,c1,c2,c3) # will not exactly reproduce book results
+# write.table(Events,"events20.txt",sep="\t",append=TRUE,row.names=FALSE,col.names=FALSE)
+
+### Age 20-40
+ndata <- data.frame(match=1, proph=1, year=1, agecl=2, R=0, recR=0, A=0, recA=0)
+ndata$match <- factor(ndata$match, levels=1:2, labels=levels(ALL$match))
+ndata$proph <- factor(ndata$proph, levels=1:2, labels=levels(ALL$proph))
+ndata$year <- factor(ndata$year, levels=1:3, labels=levels(ALL$year))
+ndata$agecl <- factor(ndata$agecl, levels=1:3, labels=levels(ALL$agecl))
+ndata
+sf1 <- survfit(c1, newdata=ndata, censor=FALSE)
+sf1 <- data.frame(time=sf1$time,surv=sf1$surv,Haz=-log(sf1$surv))
+sf2 <- survfit(c2, newdata=ndata, censor=FALSE)
+sf2 <- data.frame(time=sf2$time,surv=sf2$surv,Haz=-log(sf2$surv))
+sf3 <- survfit(c3, newdata=ndata, censor=FALSE)
+sf3 <- data.frame(time=sf3$time,surv=sf3$surv,Haz=-log(sf3$surv))
+
+# Combine sf's into 
+sf1$trans <- 1; sf2$trans <- 2; sf3$trans <- 3
+sfM <- rbind(sf1,sf2,sf3)
+
+# M <- 100000
+# Events <- Msample(sfM,M,tcond=0,c1,c2,c3) # will not exactly reproduce book results
+# write.table(Events,"events2040.txt",sep="\t",append=TRUE,row.names=FALSE,col.names=FALSE)
+
+### Age > 40
+ndata <- data.frame(match=1, proph=1, year=1, agecl=3, R=0, recR=0, A=0, recA=0)
+ndata$match <- factor(ndata$match, levels=1:2, labels=levels(ALL$match))
+ndata$proph <- factor(ndata$proph, levels=1:2, labels=levels(ALL$proph))
+ndata$year <- factor(ndata$year, levels=1:3, labels=levels(ALL$year))
+ndata$agecl <- factor(ndata$agecl, levels=1:3, labels=levels(ALL$agecl))
+ndata
+sf1 <- survfit(c1, newdata=ndata, censor=FALSE)
+sf1 <- data.frame(time=sf1$time,surv=sf1$surv,Haz=-log(sf1$surv))
+sf2 <- survfit(c2, newdata=ndata, censor=FALSE)
+sf2 <- data.frame(time=sf2$time,surv=sf2$surv,Haz=-log(sf2$surv))
+sf3 <- survfit(c3, newdata=ndata, censor=FALSE)
+sf3 <- data.frame(time=sf3$time,surv=sf3$surv,Haz=-log(sf3$surv))
+
+# Combine sf's into 
+sf1$trans <- 1; sf2$trans <- 2; sf3$trans <- 3
+sfM <- rbind(sf1,sf2,sf3)
+
+M <- 100000
+# Events <- Msample(sfM,M,tcond=0,c1,c2,c3) # will not exactly reproduce book results
+# write.table(Events,"events40.txt",sep="\t",append=TRUE,row.names=FALSE,col.names=FALSE)
+
+### Read in the results of the simulation
+Ev20 <- read.table("events20.txt",sep="\t")
+Ev2040 <- read.table("events2040.txt",sep="\t")
+Ev40 <- read.table("events40.txt",sep="\t")
+
+Ev <- Ev20
+r20 <- matrix(NA,909,5)
+r20[,5] <- 1
+sseq <- seq(0,year,length=101)
+nseq <- length(sseq)
+# This is to monitor progress
+m <- floor(log10(nseq)) + 1
+pre <- rep("\b", 2 * m + 1)
+for (i in 1:length(sseq)) {
+  cat(pre, i, "/", nseq, sep = ""); flush.console()
+  s <- sseq[i]
+# deb(s, method="cat")
+  wh <- which(Ev[,1]>s)
+  whrecP <- which(Ev[,1]<=s & Ev[,1]>s-month & Ev[,2]==3 & Ev[,3]>s)
+  whP <- which(Ev[,1]<=s-month & Ev[,2]==3 & Ev[,3]>s)
+  whrecA <- which(Ev[,1]<=s & Ev[,1]>s-month & Ev[,2]==2 & Ev[,3]>s)
+  whrecArecP <- which(Ev[,1]<=s & Ev[,1]>s-month & Ev[,3]<=s & Ev[,3]>s-month &
+    Ev[,2]>1 & Ev[,4]>1 & Ev[,5]>s)
+  whrecAP <- which(Ev[,3]<=s & Ev[,3]>s-month & Ev[,1]<=s-month &
+    Ev[,2]==3 & Ev[,4]==2 & Ev[,5]>s)
+  whA <- which(Ev[,1]<=s-month & Ev[,2]==2 & Ev[,3]>s)
+  whArecP <- which(Ev[,3]<=s & Ev[,3]>s-month & Ev[,1]<=s-month &
+    Ev[,2]==2 & Ev[,4]==3 & Ev[,5]>s)
+  whAP <- which(Ev[,1]<=s-month & Ev[,3]<=s-month &
+    Ev[,2]>1 & Ev[,4]>1 & Ev[,5]>s)
+  whout <- which((Ev[,1]<=s & Ev[,2]==1) | (Ev[,3]<=s & Ev[,4]==1) | (Ev[,5]<=s & Ev[,6]==1))
+  
+  Ev[,7] <- NA
+  if (length(wh)>0) Ev[wh,7] <- 1
+  if (length(whrecP)>0) Ev[whrecP,7] <- 2
+  if (length(whP)>0) Ev[whP,7] <- 3
+  if (length(whrecA)>0) Ev[whrecA,7] <- 4
+  if (length(whrecArecP)>0) Ev[whrecArecP,7] <- 5
+  if (length(whrecAP)>0) Ev[whrecAP,7] <- 6
+  if (length(whA)>0) Ev[whA,7] <- 7
+  if (length(whArecP)>0) Ev[whArecP,7] <- 8
+  if (length(whAP)>0) Ev[whAP,7] <- 9
+  if (length(whout)>0) Ev[whout,7] <- 0
+# deb(table(Ev[,7],exclude=NULL))
+  r20[(i-1)*9+1,4] <- length(wh)/M
+  r20[(i-1)*9+2,4] <- length(whrecP)/M
+  r20[(i-1)*9+3,4] <- length(whP)/M
+  r20[(i-1)*9+4,4] <- length(whrecA)/M
+  r20[(i-1)*9+5,4] <- length(whrecArecP)/M
+  r20[(i-1)*9+6,4] <- length(whrecAP)/M
+  r20[(i-1)*9+7,4] <- length(whA)/M
+  r20[(i-1)*9+8,4] <- length(whArecP)/M
+  r20[(i-1)*9+9,4] <- length(whAP)/M
+  
+  Fwv <- rep(NA,9)
+  if (length(wh)>0) Fwv[1] <- extractRFS(as.matrix(Ev[wh,1:6]),5*year+s)
+  if (length(whrecP)>0) Fwv[2] <- extractRFS(as.matrix(Ev[whrecP,1:6]),5*year+s)
+  if (length(whP)>0) Fwv[3] <- extractRFS(as.matrix(Ev[whP,1:6]),5*year+s)
+  if (length(whrecA)>0) Fwv[4] <- extractRFS(as.matrix(Ev[whrecA,1:6]),5*year+s)
+  if (length(whrecArecP)>0) Fwv[5] <- extractRFS(as.matrix(Ev[whrecArecP,1:6]),5*year+s)
+  if (length(whrecAP)>0) Fwv[6] <- extractRFS(as.matrix(Ev[whrecAP,1:6]),5*year+s)
+  if (length(whA)>0) Fwv[7] <- extractRFS(as.matrix(Ev[whA,1:6]),5*year+s)
+  if (length(whArecP)>0) Fwv[8] <- extractRFS(as.matrix(Ev[whArecP,1:6]),5*year+s)
+  if (length(whAP)>0) Fwv[9] <- extractRFS(as.matrix(Ev[whAP,1:6]),5*year+s)
+# deb(Fwv)
+  r20[(i-1)*9+(1:9),1] <- s
+  r20[(i-1)*9+(1:9),2] <- 1:9
+  r20[(i-1)*9+(1:9),3] <- Fwv
+}
+
+Ev <- Ev2040
+r2040 <- matrix(NA,909,5)
+r2040[,5] <- 2
+sseq <- seq(0,year,length=101)
+nseq <- length(sseq)
+# This is to monitor progress
+m <- floor(log10(nseq)) + 1
+pre <- rep("\b", 2 * m + 1)
+for (i in 1:length(sseq)) {
+  cat(pre, i, "/", nseq, sep = ""); flush.console()
+  s <- sseq[i]
+# deb(s, method="cat")
+  wh <- which(Ev[,1]>s)
+  whrecP <- which(Ev[,1]<=s & Ev[,1]>s-month & Ev[,2]==3 & Ev[,3]>s)
+  whP <- which(Ev[,1]<=s-month & Ev[,2]==3 & Ev[,3]>s)
+  whrecA <- which(Ev[,1]<=s & Ev[,1]>s-month & Ev[,2]==2 & Ev[,3]>s)
+  whrecArecP <- which(Ev[,1]<=s & Ev[,1]>s-month & Ev[,3]<=s & Ev[,3]>s-month &
+    Ev[,2]>1 & Ev[,4]>1 & Ev[,5]>s)
+  whrecAP <- which(Ev[,3]<=s & Ev[,3]>s-month & Ev[,1]<=s-month &
+    Ev[,2]==3 & Ev[,4]==2 & Ev[,5]>s)
+  whA <- which(Ev[,1]<=s-month & Ev[,2]==2 & Ev[,3]>s)
+  whArecP <- which(Ev[,3]<=s & Ev[,3]>s-month & Ev[,1]<=s-month &
+    Ev[,2]==2 & Ev[,4]==3 & Ev[,5]>s)
+  whAP <- which(Ev[,1]<=s-month & Ev[,3]<=s-month &
+    Ev[,2]>1 & Ev[,4]>1 & Ev[,5]>s)
+  whout <- which((Ev[,1]<=s & Ev[,2]==1) | (Ev[,3]<=s & Ev[,4]==1) | (Ev[,5]<=s & Ev[,6]==1))
+  
+  Ev[,7] <- NA
+  if (length(wh)>0) Ev[wh,7] <- 1
+  if (length(whrecP)>0) Ev[whrecP,7] <- 2
+  if (length(whP)>0) Ev[whP,7] <- 3
+  if (length(whrecA)>0) Ev[whrecA,7] <- 4
+  if (length(whrecArecP)>0) Ev[whrecArecP,7] <- 5
+  if (length(whrecAP)>0) Ev[whrecAP,7] <- 6
+  if (length(whA)>0) Ev[whA,7] <- 7
+  if (length(whArecP)>0) Ev[whArecP,7] <- 8
+  if (length(whAP)>0) Ev[whAP,7] <- 9
+  if (length(whout)>0) Ev[whout,7] <- 0
+# deb(table(Ev[,7],exclude=NULL))
+  r2040[(i-1)*9+1,4] <- length(wh)/M
+  r2040[(i-1)*9+2,4] <- length(whrecP)/M
+  r2040[(i-1)*9+3,4] <- length(whP)/M
+  r2040[(i-1)*9+4,4] <- length(whrecA)/M
+  r2040[(i-1)*9+5,4] <- length(whrecArecP)/M
+  r2040[(i-1)*9+6,4] <- length(whrecAP)/M
+  r2040[(i-1)*9+7,4] <- length(whA)/M
+  r2040[(i-1)*9+8,4] <- length(whArecP)/M
+  r2040[(i-1)*9+9,4] <- length(whAP)/M
+  
+  Fwv <- rep(NA,9)
+  if (length(wh)>0) Fwv[1] <- extractRFS(as.matrix(Ev[wh,1:6]),5*year+s)
+  if (length(whrecP)>0) Fwv[2] <- extractRFS(as.matrix(Ev[whrecP,1:6]),5*year+s)
+  if (length(whP)>0) Fwv[3] <- extractRFS(as.matrix(Ev[whP,1:6]),5*year+s)
+  if (length(whrecA)>0) Fwv[4] <- extractRFS(as.matrix(Ev[whrecA,1:6]),5*year+s)
+  if (length(whrecArecP)>0) Fwv[5] <- extractRFS(as.matrix(Ev[whrecArecP,1:6]),5*year+s)
+  if (length(whrecAP)>0) Fwv[6] <- extractRFS(as.matrix(Ev[whrecAP,1:6]),5*year+s)
+  if (length(whA)>0) Fwv[7] <- extractRFS(as.matrix(Ev[whA,1:6]),5*year+s)
+  if (length(whArecP)>0) Fwv[8] <- extractRFS(as.matrix(Ev[whArecP,1:6]),5*year+s)
+  if (length(whAP)>0) Fwv[9] <- extractRFS(as.matrix(Ev[whAP,1:6]),5*year+s)
+# deb(Fwv)
+  r2040[(i-1)*9+(1:9),1] <- s
+  r2040[(i-1)*9+(1:9),2] <- 1:9
+  r2040[(i-1)*9+(1:9),3] <- Fwv
+}
+
+Ev <- Ev40
+r40 <- matrix(NA,909,5)
+r40[,5] <- 3
+sseq <- seq(0,year,length=101)
+nseq <- length(sseq)
+# This is to monitor progress
+m <- floor(log10(nseq)) + 1
+pre <- rep("\b", 2 * m + 1)
+for (i in 1:length(sseq)) {
+  cat(pre, i, "/", nseq, sep = ""); flush.console()
+  s <- sseq[i]
+# deb(s, method="cat")
+  wh <- which(Ev[,1]>s)
+  whrecP <- which(Ev[,1]<=s & Ev[,1]>s-month & Ev[,2]==3 & Ev[,3]>s)
+  whP <- which(Ev[,1]<=s-month & Ev[,2]==3 & Ev[,3]>s)
+  whrecA <- which(Ev[,1]<=s & Ev[,1]>s-month & Ev[,2]==2 & Ev[,3]>s)
+  whrecArecP <- which(Ev[,1]<=s & Ev[,1]>s-month & Ev[,3]<=s & Ev[,3]>s-month &
+    Ev[,2]>1 & Ev[,4]>1 & Ev[,5]>s)
+  whrecAP <- which(Ev[,3]<=s & Ev[,3]>s-month & Ev[,1]<=s-month &
+    Ev[,2]==3 & Ev[,4]==2 & Ev[,5]>s)
+  whA <- which(Ev[,1]<=s-month & Ev[,2]==2 & Ev[,3]>s)
+  whArecP <- which(Ev[,3]<=s & Ev[,3]>s-month & Ev[,1]<=s-month &
+    Ev[,2]==2 & Ev[,4]==3 & Ev[,5]>s)
+  whAP <- which(Ev[,1]<=s-month & Ev[,3]<=s-month &
+    Ev[,2]>1 & Ev[,4]>1 & Ev[,5]>s)
+  whout <- which((Ev[,1]<=s & Ev[,2]==1) | (Ev[,3]<=s & Ev[,4]==1) | (Ev[,5]<=s & Ev[,6]==1))
+  
+  Ev[,7] <- NA
+  if (length(wh)>0) Ev[wh,7] <- 1
+  if (length(whrecP)>0) Ev[whrecP,7] <- 2
+  if (length(whP)>0) Ev[whP,7] <- 3
+  if (length(whrecA)>0) Ev[whrecA,7] <- 4
+  if (length(whrecArecP)>0) Ev[whrecArecP,7] <- 5
+  if (length(whrecAP)>0) Ev[whrecAP,7] <- 6
+  if (length(whA)>0) Ev[whA,7] <- 7
+  if (length(whArecP)>0) Ev[whArecP,7] <- 8
+  if (length(whAP)>0) Ev[whAP,7] <- 9
+  if (length(whout)>0) Ev[whout,7] <- 0
+# deb(table(Ev[,7],exclude=NULL))
+  r40[(i-1)*9+1,4] <- length(wh)/M
+  r40[(i-1)*9+2,4] <- length(whrecP)/M
+  r40[(i-1)*9+3,4] <- length(whP)/M
+  r40[(i-1)*9+4,4] <- length(whrecA)/M
+  r40[(i-1)*9+5,4] <- length(whrecArecP)/M
+  r40[(i-1)*9+6,4] <- length(whrecAP)/M
+  r40[(i-1)*9+7,4] <- length(whA)/M
+  r40[(i-1)*9+8,4] <- length(whArecP)/M
+  r40[(i-1)*9+9,4] <- length(whAP)/M
+  
+  Fwv <- rep(NA,9)
+  if (length(wh)>0) Fwv[1] <- extractRFS(as.matrix(Ev[wh,1:6]),5*year+s)
+  if (length(whrecP)>0) Fwv[2] <- extractRFS(as.matrix(Ev[whrecP,1:6]),5*year+s)
+  if (length(whP)>0) Fwv[3] <- extractRFS(as.matrix(Ev[whP,1:6]),5*year+s)
+  if (length(whrecA)>0) Fwv[4] <- extractRFS(as.matrix(Ev[whrecA,1:6]),5*year+s)
+  if (length(whrecArecP)>0) Fwv[5] <- extractRFS(as.matrix(Ev[whrecArecP,1:6]),5*year+s)
+  if (length(whrecAP)>0) Fwv[6] <- extractRFS(as.matrix(Ev[whrecAP,1:6]),5*year+s)
+  if (length(whA)>0) Fwv[7] <- extractRFS(as.matrix(Ev[whA,1:6]),5*year+s)
+  if (length(whArecP)>0) Fwv[8] <- extractRFS(as.matrix(Ev[whArecP,1:6]),5*year+s)
+  if (length(whAP)>0) Fwv[9] <- extractRFS(as.matrix(Ev[whAP,1:6]),5*year+s)
+# deb(Fwv)
+  r40[(i-1)*9+(1:9),1] <- s
+  r40[(i-1)*9+(1:9),2] <- 1:9
+  r40[(i-1)*9+(1:9),3] <- Fwv
+}
+
+r <- rbind(r20,r2040,r40)
+r <- as.data.frame(r)
+names(r) <- c("time","group","Fw","freq","age")
+# This is to manipulate awkward plotting order of lattice plots
+r$A <- 1
+r$A[r$group>3] <- 2
+r$A[r$group>6] <- 3
+r$P <- 1
+r$P[r$group %in% c(2,5,8)] <- 2
+r$P[r$group %in% c(3,6,9)] <- 3
+r$AP <- 3*(4-r$A) + r$P
+r$AP <- factor(r$AP,
+  labels=c("Past AGvHD, no PR","Past AGvHD, recent PR","Past AGvHD, past PR",
+    "Recent AGvHD, no PR","Recent AGvHD, recent PR","Recent AGvHD, past PR",
+    "No AGvHD, no PR","No AGvHD, recent PR","No AGvHD, past PR"))
+r$age <- factor(r$age,labels=c("Age <= 20","Age 20-40","Age > 40"))
+r$time <- r$time/year
+
+require(lattice)
+key.age <- list(text = list(levels(r$age)),
+    lines = list(lwd = 2, lty = 1:3, col = "black"))
+xyplot(Fw ~ time | AP, data=r, groups=age, ylim=c(0,1), lwd=2, type="l", col=1, lty=1:3,
+  xlab="Prediction time (years)",ylab="Probability of relapse or death", key=key.age)
+
+key.age <- list(text = list(levels(r$age)),
+    lines = list(lwd = 2, lty = 1:3, col = "black"))
+xyplot(freq ~ time | AP, data=r, groups=age, ylim=c(0,1), lwd=2, type="l", col=1, lty=1:3,
+  xlab="Prediction time (years)",ylab="Probability of relapse or death", key=key.age)
+
+```
+

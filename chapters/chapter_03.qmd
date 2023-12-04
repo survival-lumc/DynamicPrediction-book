@@ -1,0 +1,333 @@
+---
+execute:
+  eval: false
+editor_options: 
+  chunk_output_type: console
+---
+
+# Measuring the predictive value of a Cox model
+
+This file contains R code for the analyses in Chapter 3 of the book Dynamic Prediction in Clinical Survival Analysis (CRC Chapman & Hall) by Hans C. van Houwelingen and Hein Putter
+
+R code written by Hein Putter (H.Putter@lumc.nl for comments/questions)
+The dynpred package is available from CRAN
+
+Consistency with the book has been checked with
+- R version 2.14.0
+- survival version 2.36-10
+- dynpred version 0.1.1
+
+NOTE USE STYLER!!
+
+
+## Table 3.1: The fitted Cox model for Data Set 1 (ovarian cancer)
+
+```{r}
+#| label: table3.1
+
+require(dynpred)
+data(ova)
+
+cfull <- coxph(Surv(tyears, d) ~ FIGO + Diam + Broders + Ascites + Karn,
+  data = ova, method="breslow")
+cfull
+
+# The prognostic index
+Xbeta <- ova$Xbeta <- cfull$linear.predictors
+mean(ova$Xbeta)
+sqrt(var(ova$Xbeta))
+```
+
+## Figure 3.1: Predicted survival curves for different values of the prognostic index
+
+```{r}
+#| label: fig3.1
+
+cXbeta <- coxph(Surv(tyears, d) ~ Xbeta, data=ova, method="breslow")
+nd <- data.frame(Xbeta=-2*sd(Xbeta))
+sf <- survfit(cXbeta,newdata=nd)
+plot(sf,lwd=2,conf.int=FALSE,mark.time=FALSE,lty=2,xlab="Time in years",ylab="Survival function")
+nd <- data.frame(Xbeta=-1*sd(Xbeta))
+sf <- survfit(cXbeta,newdata=nd)
+lines(sf,lwd=2,conf.int=FALSE,lty=3,mark.time=FALSE)
+nd <- data.frame(Xbeta=0)
+sf <- survfit(cXbeta,newdata=nd)
+lines(sf,lwd=2,conf.int=FALSE,lty=1,mark.time=FALSE)
+nd <- data.frame(Xbeta=sd(Xbeta))
+sf <- survfit(cXbeta,newdata=nd)
+lines(sf,lwd=2,conf.int=FALSE,lty=4,mark.time=FALSE)
+nd <- data.frame(Xbeta=2*sd(Xbeta))
+sf <- survfit(cXbeta,newdata=nd)
+lines(sf,lwd=2,conf.int=FALSE,lty=5,mark.time=FALSE)
+legend("topright",c("Mean-2sd","Mean-sd","Mean","Mean+sd","Mean+2sd"),lwd=2,col=c(1,1,1,1,1),lty=c(2,3,1,4,5),bty="n")
+```
+
+## Figure 3.2: (Censored) 80% tolerance intervals for different values of the prognostic index
+
+```{r}
+#| label: fig3.2
+
+# This causes warnings when the right hand side of the tolerance interval
+# cannot always be determined (see text book). These warnings can be safely
+# ignored.
+tmp <- toleranceplot(Surv(tyears, d) ~ Karn + Broders + FIGO + Ascites + Diam,
+  data = ova, horizon = 8, xlab = "Prognostic index")
+```
+
+
+## The rest (to be divided)
+
+```{r}
+#| label: fig3.3
+
+###############################################################################
+### Figure 3.3: Partly imputed survival time versus prognostic index
+### (Royston scatterplot)
+###############################################################################
+
+# The imputations of the censored data are random; this seed exactly reproduces
+# the results of the book, different seeds will give slightly different results
+set.seed(20100301)
+tmp <- scatterplot(Surv(tyears, d) ~ Karn + Broders + FIGO + Ascites + Diam,
+  data = ova, horizon = 8, xlab = "Prognostic index")
+
+###############################################################################
+### Figure 3.4: AUC(t) for the Cox model of the ovarian cancer data
+###############################################################################
+
+AUC(Surv(tyears, d) ~ Karn + Broders + FIGO + Ascites + Diam, data = ova)
+
+###############################################################################
+### Figure 3.5: Cw(t) with w = 2 for the Cox model of Table 3.1
+###############################################################################
+
+AUCw.ova <- AUCw(Surv(tyears, d) ~ Karn + Broders + FIGO + Ascites + Diam,
+  data = ova, width = 2)
+AUCw.ova <- AUCw.ova[AUCw.ova$time<=4,]
+plot(AUCw.ova$time,AUCw.ova$AUCw,type="s",lwd=2,ylim=c(0.5,1),
+  xlab="Time t (years)",ylab="Dynamic C")
+
+###############################################################################
+### Prediction error curves
+###############################################################################
+
+# The function pecox from dynpred calculates these
+# See the documentation for details
+ErrBrier1 <- pecox(Surv(tyears, d) ~ Karn + Broders + FIGO + Ascites + Diam,
+  Surv(tyears, 1-d) ~ 1, data = ova, FUN = "Brier")
+ErrBrier0 <- pecox(Surv(tyears, d) ~ 1,
+  Surv(tyears, 1-d) ~ 1, data = ova, FUN = "Brier")
+ErrKL1 <- pecox(Surv(tyears, d) ~ Karn + Broders + FIGO + Ascites + Diam,
+  Surv(tyears, 1-d) ~ 1, data = ova, FUN = "KL")
+ErrKL0 <- pecox(Surv(tyears, d) ~ 1,
+  Surv(tyears, 1-d) ~ 1, data = ova, FUN = "KL")
+ErrBrier <- data.frame(time=ErrBrier1$time, Err0=ErrBrier0$Err, Err1=ErrBrier1$Err)
+ErrBrier$ErrRed <- (ErrBrier$Err0-ErrBrier$Err1)/ErrBrier$Err0
+ErrKL <- data.frame(time=ErrKL1$time, Err0=ErrKL0$Err, Err1=ErrKL1$Err)
+ErrKL$ErrRed <- (ErrKL$Err0-ErrKL$Err1)/ErrKL$Err0
+ErrKL[1,2:3] <- 0
+ErrBrier <- subset(ErrBrier, time<=6)
+ErrKL <- subset(ErrKL, time<=6)
+
+###############################################################################
+### Figure 3.6: Prediction error curves
+###############################################################################
+
+### Note: small differences with the plots in the book are possible for
+### two reasons. First because by default the prediction error functions
+### in dynpred are calculated at event AND censoring time points, while
+### those in the book were calculated only at the event time points. The
+### second reason is that the (dynamic) prediction error functions use
+### slightly different censoring estimates than those used in the book.
+### Especially at the end of follow-up this might lead to visible differences.
+
+plot(ErrBrier$time,ErrBrier$Err1,type="s",ylim=c(0,max(ErrKL[,c("Err0","Err1")])),
+    lwd=2,xlab="Time (years)",ylab="Prediction error")
+lines(ErrBrier$time,ErrBrier$Err0,type="s",lwd=2,lty=2)
+lines(ErrKL$time,ErrKL$Err1,type="s",lwd=2)
+lines(ErrKL$time,ErrKL$Err0,type="s",lwd=2,lty=2)
+legend("topright",c("Null model (KM)","Covariate model"),lwd=2,lty=2:1,bty="n")
+text(6,0.43,"Kullback-Leibler",adj=1)
+text(6,0.20,"Brier",adj=1)
+
+###############################################################################
+### Figure 3.7: Relative error reduction curves
+###############################################################################
+
+plot(ErrBrier$time,ErrBrier$ErrRed,type="s",ylim=range(c(0,ErrBrier$ErrRed,ErrKL$ErrRed),na.rm=TRUE),lwd=2,col=8,
+    xlab="Time (years)",ylab="Prediction error reduction")
+lines(ErrKL$time,ErrKL$ErrRed,type="s",lwd=2)
+legend("topright",c("Kullback-Leibler","Brier"),lwd=2,col=c(1,8),bty="n")
+
+###############################################################################
+### Figure 3.8: Dynamic prediction error curves (w = 2) for Kullback-Leibler
+### and Brier scores
+###############################################################################
+
+dynpe1.KL <- pewcox(Surv(tyears, d) ~ Karn + Broders + FIGO + Ascites + Diam,
+  Surv(tyears, 1-d) ~ 1, data = ova, width = 2, FUN = "KL")
+dynpe0.KL <- pewcox(Surv(tyears, d) ~ 1,
+  Surv(tyears, 1-d) ~ 1, data = ova, width = 2, FUN = "KL")
+dynpe1.Brier <- pewcox(Surv(tyears, d) ~ Karn + Broders + FIGO + Ascites + Diam,
+  Surv(tyears, 1-d) ~ 1, data = ova, width = 2, FUN = "Brier")
+dynpe0.Brier <- pewcox(Surv(tyears, d) ~ 1,
+  Surv(tyears, 1-d) ~ 1, data = ova, width = 2, FUN = "Brier")
+
+dynpe.Brier <- data.frame(time=dynpe1.Brier$time, Err0=dynpe0.Brier$Err, Err1=dynpe1.Brier$Err)
+dynpe.Brier$ErrRed <- (dynpe.Brier$Err0-dynpe.Brier$Err1)/dynpe.Brier$Err0
+dynpe.KL <- data.frame(time=dynpe1.KL$time, Err0=dynpe0.KL$Err, Err1=dynpe1.KL$Err)
+dynpe.KL$ErrRed <- (dynpe.KL$Err0-dynpe.KL$Err1)/dynpe.KL$Err0
+
+# Cut off last part
+nt <- length(dynpe.Brier$time)
+dynpe.Brier <- subset(dynpe.Brier,time<=5.25)
+dynpe.KL <- subset(dynpe.KL,time<=5.25)
+
+###############################################################################
+### Figure 3.8, left panel
+###############################################################################
+
+plot(dynpe.Brier$time,dynpe.Brier$Err1,type="s",xlim=c(0,5.25),ylim=c(0,max(cbind(dynpe.Brier[,c("Err0","Err1")],dynpe.KL[,c("Err0","Err1")]))),
+    lwd=2,xlab="Time (years)",ylab="Prediction error")
+lines(dynpe.Brier$time,dynpe.Brier$Err0,type="s",lwd=2,lty=2)
+lines(dynpe.KL$time,dynpe.KL$Err1,type="s",lwd=2)
+lines(dynpe.KL$time,dynpe.KL$Err0,type="s",lwd=2,lty=2)
+legend("topright",c("Null model (KM)","Covariate model"),lwd=2,lty=2:1,bty="n")
+text(5.4,0.6,"Kullback-Leibler",adj=1)
+text(5.4,0.12,"Brier",adj=1)
+
+###############################################################################
+### Figure 3.8, right panel
+###############################################################################
+
+plot(dynpe.Brier$time,dynpe.Brier$ErrRed,type="s",xlim=range(dynpe.KL$time),
+  ylim=range(c(dynpe.Brier$ErrRed,dynpe.KL$ErrRed)),lwd=2,col=8,
+  xlab="Time (years)",ylab="Prediction error reduction")
+lines(dynpe.KL$time,dynpe.KL$ErrRed,type="s",lwd=2)
+legend("topright",c("Kullback-Leibler","Brier"),lwd=2,col=c(1,8),bty="n")
+
+###############################################################################
+### Table 3.2: Interval-specific and total prediction errors
+###############################################################################
+
+dynpe1.KL1 <- pewcox(Surv(tyears, d) ~ Karn + Broders + FIGO + Ascites + Diam,
+  Surv(tyears, 1-d) ~ 1, data = ova, width = 1, FUN = "KL")
+dynpe0.KL1 <- pewcox(Surv(tyears, d) ~ 1,
+  Surv(tyears, 1-d) ~ 1, data = ova, width = 1, FUN = "KL")
+dynpe1.Brier1 <- pewcox(Surv(tyears, d) ~ Karn + Broders + FIGO + Ascites + Diam,
+  Surv(tyears, 1-d) ~ 1, data = ova, width = 1, FUN = "Brier")
+dynpe0.Brier1 <- pewcox(Surv(tyears, d) ~ 1,
+  Surv(tyears, 1-d) ~ 1, data = ova, width = 1, FUN = "Brier")
+
+dynpe.Brier1 <- data.frame(time=dynpe1.Brier1$time, Err0=dynpe0.Brier1$Err, Err1=dynpe1.Brier1$Err)
+dynpe.Brier1$ErrRed <- (dynpe.Brier1$Err0-dynpe.Brier1$Err1)/dynpe.Brier1$Err0
+dynpe.KL1 <- data.frame(time=dynpe1.KL1$time, Err0=dynpe0.KL1$Err, Err1=dynpe1.KL1$Err)
+dynpe.KL1$ErrRed <- (dynpe.KL1$Err0-dynpe.KL1$Err1)/dynpe.KL1$Err0
+
+ova.km <- survfit(formula = Surv(tyears, d) ~ 1, data = ova)
+KMstart <- evalstep(ova.km$time,ova.km$surv,0:6,subst=1)
+
+res <- data.frame(Interval=c("0-1","1-2","2-3","3-4","4-5","5-6"),
+  KMstart=KMstart[1:6],
+  Hazard=NA,
+  BrierKM=c(dynpe.Brier1$Err0[1],evalstep(dynpe.Brier1$time,dynpe.Brier1$Err0,1:5)),
+  BrierModel=c(dynpe.Brier1$Err1[1],evalstep(dynpe.Brier1$time,dynpe.Brier1$Err1,1:5)),
+  BrierRed=c(dynpe.Brier1$ErrRed[1],evalstep(dynpe.Brier1$time,dynpe.Brier1$ErrRed,1:5)),
+  KLKM=c(dynpe.KL1$Err0[1],evalstep(dynpe.KL1$time,dynpe.KL1$Err0,1:5)),
+  KLModel=c(dynpe.KL1$Err1[1],evalstep(dynpe.KL1$time,dynpe.KL1$Err1,1:5)),
+  KLRed=c(dynpe.KL1$ErrRed[1],evalstep(dynpe.KL1$time,dynpe.KL1$ErrRed,1:5)))
+res$Hazard <- 1 - KMstart[-1]/KMstart[-7]
+
+# Append totals
+res <- rbind(res,data.frame(Interval="Total",KMstart=NA,Hazard=NA,
+            BrierKM=sum(res$KMstart*res$BrierKM),
+            BrierModel=sum(res$KMstart*res$BrierModel),
+            BrierRed=1-sum(res$KMstart*res$BrierModel)/sum(res$KMstart*res$BrierKM),
+            KLKM=sum(res$KMstart*res$KLKM),
+            KLModel=sum(res$KMstart*res$KLModel),
+            KLRed=1-sum(res$KMstart*res$KLModel)/sum(res$KMstart*res$KLKM)))
+res
+# For book, round to three decimals
+res[,2:9] <- round(res[,2:9],3)
+res
+
+###############################################################################
+### Cross-validated C-index
+###############################################################################
+
+date()
+CVcindex(Surv(tyears,d) ~ Karn + Broders + FIGO + Ascites + Diam, data = ova)
+date()
+CVcindex(Surv(tyears,d) ~ Karn + Broders + FIGO + Ascites + Diam, data = ova, type="pair")
+date()
+CVcindex(Surv(tyears,d) ~ Karn + Broders + FIGO + Ascites + Diam, data = ova, type="fullpairs")
+date()
+
+###############################################################################
+### Cross-validated prediction error curves
+###############################################################################
+
+ErrBrierCV <- pecox(Surv(tyears, d) ~ Karn + Broders + FIGO + Ascites + Diam,
+  Surv(tyears, 1-d) ~ 1, data = ova, FUN="Brier", CV=TRUE, progress=TRUE)
+ErrKLCV <- pecox(Surv(tyears, d) ~ Karn + Broders + FIGO + Ascites + Diam,
+  Surv(tyears, 1-d) ~ 1, data = ova, FUN="KL", CV=TRUE, progress=TRUE)
+
+### The following is copied from above, no need to run it if ErrBrier and ErrKL are known
+# ErrBrier1 <- pecox(Surv(tyears, d) ~ Karn + Broders + FIGO + Ascites + Diam,
+#   Surv(tyears, 1-d) ~ 1, data = ova, FUN = "Brier")
+# ErrBrier0 <- pecox(Surv(tyears, d) ~ 1,
+#   Surv(tyears, 1-d) ~ 1, data = ova, FUN = "Brier")
+# ErrKL1 <- pecox(Surv(tyears, d) ~ Karn + Broders + FIGO + Ascites + Diam,
+#   Surv(tyears, 1-d) ~ 1, data = ova, FUN = "KL")
+# ErrKL0 <- pecox(Surv(tyears, d) ~ 1,
+#   Surv(tyears, 1-d) ~ 1, data = ova, FUN = "KL")
+# ErrBrier <- data.frame(time=ErrBrier1$time, Err0=ErrBrier0$Err, Err1=ErrBrier1$Err)
+# ErrBrier$ErrRed <- (ErrBrier$Err0-ErrBrier$Err1)/ErrBrier$Err0
+# ErrKL <- data.frame(time=ErrKL1$time, Err0=ErrKL0$Err, Err1=ErrKL1$Err)
+# ErrKL$ErrRed <- (ErrKL$Err0-ErrKL$Err1)/ErrKL$Err0
+
+ErrBrier1 <- subset(ErrBrier1, time<=6)
+ErrBrier0 <- subset(ErrBrier0, time<=6)
+ErrKL1 <- subset(ErrKL1, time<=6)
+ErrKL0 <- subset(ErrKL0, time<=6)
+ErrBrierCV <- subset(ErrBrierCV, time<=6)
+ErrKLCV <- subset(ErrKLCV, time<=6)
+
+###############################################################################
+### Figure 3.9: Prediction errors with cross-validation
+###############################################################################
+
+plot(ErrBrier1$time,ErrBrier1$Err,type="s",xlim=c(0,6),ylim=c(0,max(cbind(ErrBrier[,c("Err0","Err1")],ErrKL[,c("Err0","Err1")]))+0.015),
+    lwd=2,xlab="Time (years)",ylab="Prediction error")
+lines(ErrBrierCV$time,ErrBrierCV$Err,type="s",lwd=2,col=8)
+lines(ErrBrier0$time,ErrBrier0$Err,type="s",lwd=2,lty=2)
+lines(ErrKL1$time,ErrKL1$Err,type="s",lwd=2)
+lines(ErrKLCV$time,ErrKLCV$Err,type="s",lwd=2,col=8)
+lines(ErrKL0$time,ErrKL0$Err,type="s",lwd=2,lty=2)
+legend("topright",c("Null model (KM)","Covariate model (CV)","Covariate model"),lwd=2,lty=c(2,1,1),col=c(1,8,1),bty="n")
+text(6,0.425,"Kullback-Leibler",adj=1)
+text(6,0.20,"Brier",adj=1)
+
+###############################################################################
+### Table 3.3: Partial log-likelihoods with and without cross-validation
+###############################################################################
+
+cfull <- coxph(Surv(tyears, d) ~ Karn + Broders + FIGO + Ascites + Diam,
+  data = ova)
+
+CVPLKM <- CVPL(Surv(tyears, d) ~ 1, data = ova)
+CVPLCox <- CVPL(Surv(tyears, d) ~ Karn + Broders + FIGO + Ascites + Diam,
+  data = ova, overall=TRUE)
+CVPLCVCox <- CVPL(Surv(tyears, d) ~ Karn + Broders + FIGO + Ascites + Diam,
+  data = ova)
+
+cfull$loglik
+diff(cfull$loglik)
+CVPLKM
+CVPLCox
+CVPLCVCox
+CVPLCox - CVPLKM
+CVPLCVCox - CVPLKM
+```
+
+

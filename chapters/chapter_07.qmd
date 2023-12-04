@@ -1,0 +1,314 @@
+---
+execute:
+  eval: false
+---
+
+# Dealing with non-proportional hazards
+
+This file contains R code for the analyses in Chapter 7 of the book Dynamic Prediction in Clinical Survival Analysis (CRC Chapman & Hall) by Hans C. van Houwelingen and Hein Putter
+
+R code written by Hein Putter (H.Putter@lumc.nl for comments/questions)
+The dynpred package is available from CRAN
+
+Consistency with the book has been checked with
+- R version 2.14.0
+- survival version 2.36-10
+- dynpred version 0.1.1
+
+
+```{r}
+#| label: figbla
+
+require(dynpred)
+
+###############################################################################
+###############################################################################
+### Section 7.1 based on large simulated data set
+###############################################################################
+###############################################################################
+
+S1 <- function(t) exp(-(t/5)^(4/3))
+S2 <- function(t) exp(-(t/5)^(3/4))
+
+set.seed(20100629)
+n <- 50000
+n2 <- n/2
+d1 <- data.frame(id=1:n2,time=5*(-log(runif(n2)))^(3/4),status=1,group=1)
+d2 <- data.frame(id=n2+(1:n2),time=5*(-log(runif(n2)))^(4/3),status=1,group=2)
+d <- rbind(d1,d2)
+d$status[d$time>10] <- 0
+d$time[d$time>10] <- 10
+
+# Simple Cox
+c1 <- coxph(Surv(time,status)~group, data=d)
+c1
+sf <- survfit(c1,newdata=data.frame(group=1:2))
+
+###############################################################################
+###############################################################################
+### Figure 7.1: The survival curves of the example and simple Cox model fit
+###############################################################################
+###############################################################################
+
+tseq <- seq(0,10,by=0.05)
+# Actual figure with stepfunction for Cox fits
+plot(tseq,S1(tseq),type="l",lwd=2,ylim=c(0,1),xlab="Time (years)",ylab="Survival")
+lines(tseq,S2(tseq),type="l",lwd=2,lty=2)
+lines(c(0,sf[1]$time),c(1,sf[1]$surv),type="l",lwd=2,col=8)
+lines(c(0,sf[2]$time),c(1,sf[2]$surv),type="l",lwd=2,col=8,lty=2)
+legend("topright",c("True group 1","True group 2","Cox fit group 1","Cox fit group 2"),
+  lwd=2,col=c(1,1,8,8),lty=c(1,2,1,2),bty="n")
+
+###############################################################################
+###############################################################################
+### Figure 7.2: Survival predictions based on ?stopped Cox models?
+### for each time-point
+###############################################################################
+###############################################################################
+
+tseq <- seq(0,10,by=0.05)
+nseq <- length(tseq)
+## Cox stopped
+stoppedCox <- matrix(NA,nseq,2)
+stoppedCox[1,] <- c(1,1)
+# This is to monitor progress
+m <- floor(log10(nseq)) + 1
+pre <- rep("\b", 2 * m + 1)
+for (i in 2:length(tseq)) {
+  cat(pre, i, "/", nseq, sep = ""); flush.console()
+  thor <- tseq[i]
+  dhor <- d
+  dhor$status[dhor$time>thor] <- 0
+  dhor$time[dhor$time>thor] <- thor
+  chor <- coxph(Surv(time,status)~group, data=dhor)
+  sfhor <- survfit(chor,newdata=data.frame(group=1:2))
+  nhor <- length(sfhor[1]$time)
+  stoppedCox[i,] <- sfhor$surv[nhor,]
+}
+
+plot(tseq,S1(tseq),type="l",lwd=2,ylim=c(0,1),xlab="Time (years)",ylab="Survival")
+lines(tseq,S2(tseq),type="l",lwd=2,lty=2)
+lines(tseq,stoppedCox[,1],type="l",lwd=2,col=8)
+lines(tseq,stoppedCox[,2],type="l",lwd=2,col=8,lty=2)
+legend("topright",
+  c("True group 1","True group 2","Stopped Cox group 1","Stopped Cox group 2"),
+  lwd=2,col=c(1,1,8,8),lty=c(1,2,1,2),bty="n")
+
+###############################################################################
+###############################################################################
+### Figure 7.3 Dynamic predictions with a window of 3 years comparing
+### a simple Cox model with the true model for the simulation example
+### of Section 7.1
+###############################################################################
+###############################################################################
+
+w <- 3
+tseq <- seq(0,7,by=0.05)
+Fw1 <- data.frame(time=tseq,Fw=1-exp(-(((tseq+3)/5)^(4/3) - (tseq/5)^(4/3))))
+Fw2 <- data.frame(time=tseq,Fw=1-exp(-(((tseq+3)/5)^(3/4) - (tseq/5)^(3/4))))
+
+## Simple Cox
+dcox <- coxph(Surv(time, status) ~ group, data=d)
+ndata <- data.frame(group=1:2)
+sf1 <- survfit(dcox, newdata=ndata[1,,drop=FALSE])
+sf2 <- survfit(dcox, newdata=ndata[2,,drop=FALSE])
+nseq <- length(tseq)
+Fwcox1 <- Fwcox2 <- data.frame(time=tseq,Fw=NA)
+# For loop takes a while; this is to monitor progress
+m <- floor(log10(nseq)) + 1
+pre <- rep("\b", 2 * m + 1)
+for (i in 1:nseq) {
+    cat(pre, i, "/", nseq, sep = ""); flush.console()
+    ti <- tseq[i]
+    S1 <- evalstep(sf1$time,sf1$surv,c(ti,ti+w),subst=1)
+    S2 <- evalstep(sf2$time,sf2$surv,c(ti,ti+w),subst=1)
+    Fwcox1$Fw[i] <- 1- S1[2]/S1[1]
+    Fwcox2$Fw[i] <- 1- S2[2]/S2[1]
+}
+
+plot(Fw1$time,Fw1$Fw,type="l",lwd=2,xlim=c(0,7),ylim=c(0,1),xlab="Time (years)",ylab="Death probability")
+lines(Fw2$time,Fw2$Fw,type="l",lwd=2,col=8)
+lines(Fwcox1$time,Fwcox1$Fw,type="l",lwd=1,lty=2)
+lines(Fwcox2$time,Fwcox2$Fw,type="l",lwd=1,lty=2,col=8)
+legend("topright",c("True group 1","True group 2","Simple Cox group 1","Simple Cox group 2"),lwd=2,col=c(1,8,1,8),lty=c(1,1,2,2),bty="n")
+
+
+###############################################################################
+###############################################################################
+### Section 7.2 based on D1/D2 and ovarian data
+### D1/D2 data are NOT publicly available, code is available upon request
+### This document only contains the ovarian cancer analysis
+###############################################################################
+###############################################################################
+
+data(ova)
+
+# Recall from Chapter 3
+cfull <- coxph(Surv(tyears, d) ~ Karn + Broders + FIGO + Ascites + Diam,
+  data = ova)
+cfull
+
+Xbeta <- ova$Xbeta <- cfull$linear.predictors
+mean(ova$Xbeta)
+sqrt(var(ova$Xbeta))
+
+cfull <- coxph(Surv(tyears, d) ~ Xbeta, data = ova)
+
+w <- 3
+tt <- ova$tyears[ova$d==1]
+tt <- sort(unique(c(0,tt,tt-w)))
+tt <- tt[tt>=0]
+nt <- length(tt)
+LMprobs <- data.frame(LM=tt,logHR=NA,lower=NA,upper=NA)
+for (i in 1:nt) {
+    LMdata <- cutLM(data=ova,outcome=list(time="tyears",status="d"),
+        LM=tt[i],horizon=tt[i]+w,covs=list(fixed="Xbeta",varying=NULL))
+    LMcox <- coxph(Surv(tyears,d) ~ Xbeta, data=LMdata, method="breslow")
+    se <- as.numeric(sqrt(LMcox$var))
+    LMprobs$logHR[i] <- LMcox$coef
+    LMprobs$lower[i] <- LMcox$coef - qnorm(0.975)*se
+    LMprobs$upper[i] <- LMcox$coef + qnorm(0.975)*se
+}
+
+###############################################################################
+###############################################################################
+### Table 7.2: Sliding landmark model for the ovarian cancer data
+###############################################################################
+###############################################################################
+
+# Supermodel based on stacked data sets
+LMs <- seq(0,5,by=0.10)
+LMdata <- cutLM(data=ova,outcome=list(time="tyears",status="d"),
+    LM=0,horizon=w,covs=list(fixed=c("id","Xbeta"),varying=NULL))
+for (i in 2:length(LMs))
+    LMdata <- rbind(LMdata,cutLM(data=ova,outcome=list(time="tyears",status="d"),
+        LM=LMs[i],horizon=LMs[i]+w,covs=list(fixed=c("id","Xbeta"),varying=NULL)))
+
+f1 <- function(t) 1
+f2 <- function(t) (t/5)
+f3 <- function(t) (t/5)^2
+
+# Explicitly code interactions of treatment with LM
+LMdata$Xbeta1 <- LMdata$Xbeta*f1(LMdata$LM)
+LMdata$Xbeta2 <- LMdata$Xbeta*f2(LMdata$LM)
+LMdata$Xbeta3 <- LMdata$Xbeta*f3(LMdata$LM)
+# Supermodel based only on randomization
+LMsupercox <- coxph(Surv(LM,tyears,d) ~ Xbeta1 + Xbeta2 + Xbeta3 + strata(LM)
+    + cluster(id), data=LMdata, method="breslow")
+LMsupercox
+
+bet <- LMsupercox$coef
+sig <- LMsupercox$var
+
+# Wald test to assess statistical signifiance of Xbeta x landmark interactions
+wh <- 2:3
+wald <- t(bet[wh]) %*% solve(sig[wh,wh]) %*% bet[wh]
+pval <- 1-pchisq(wald,df=length(wh))
+print(data.frame(wald=wald,pval=pval))
+
+###############################################################################
+###############################################################################
+### Figure 7.9: Sliding landmark effects and pointwise 95%-confidence intervals
+### for the prognostic index of Table 3.1 in the ovarian cancer data using
+### a window of width w = 3
+###############################################################################
+###############################################################################
+
+m <- matrix(c(rep(1,length(LMs)),f2(LMs),f3(LMs)),length(LMs),3)
+
+LMsmooth <- data.frame(LM=LMs,logHR=as.numeric(m %*% bet))
+se <- sqrt(diag(m %*% sig %*% t(m)))
+LMsmooth$lower <- LMsmooth$logHR - qnorm(0.975)*se
+LMsmooth$upper <- LMsmooth$logHR + qnorm(0.975)*se
+
+LMprobs <- LMprobs[LMprobs$LM<=5,]
+LMsmooth <- LMsmooth[LMsmooth$LM<=5,]
+
+plot(LMprobs$LM,LMprobs$logHR,type="s",lwd=2,
+  xlim=c(0,5),ylim=range(LMprobs[,2:4]),
+  xlab="Time (years)",ylab="Log hazard ratio")
+lines(LMprobs$LM,LMprobs$lower,type="s")
+lines(LMprobs$LM,LMprobs$upper,type="s")
+lines(LMsmooth$LM,LMsmooth$logHR,type="l",lwd=2,lty=2)
+lines(LMsmooth$LM,LMsmooth$lower,type="l",lty=2)
+lines(LMsmooth$LM,LMsmooth$upper,type="l",lty=2)
+legend("bottomleft",c("Crude","Supermodel"),lwd=2,lty=1:2,bty="n")
+
+## ipl* model
+g1 <- function(t) f2(t)
+g2 <- function(t) f3(t)
+LMdata$LM1 <- g1(LMdata$LM)
+LMdata$LM2 <- g2(LMdata$LM)
+
+LMsupercox2 <- coxph(Surv(LM,tyears,d) ~ Xbeta1 + Xbeta2 + Xbeta3 + LM1 + LM2
+  + cluster(id), data=LMdata, method="breslow")
+LMsupercox2
+
+bet <- LMsupercox2$coef
+sig <- LMsupercox2$var
+
+# Wald test to assess statistical signifiance of Xbeta x landmark interactions
+wh <- 2:3
+wald <- t(bet[wh]) %*% solve(sig[wh,wh]) %*% bet[wh]
+pval <- 1-pchisq(wald,df=length(wh))
+print(data.frame(wald=wald,pval=pval))
+
+
+###############################################################################
+###############################################################################
+### Figure 7.10: Three year dynamic probabilities of dying based on the
+### proportional baselines landmark supermodel for the ovarian cancer data
+###############################################################################
+###############################################################################
+
+ndata <- data.frame(Xbeta1=0,Xbeta2=0,Xbeta3=0,LM1=0,LM2=0)
+sf2 <- survfit(LMsupercox2, newdata=ndata)
+
+# Prediction
+tt <- tt[tt<=5]
+
+## Custom-made function to calculate predictions
+Fwpredict <- function(bet, sf, newdata, tt)
+{
+    nt <- length(tt)
+    Xbeta <- newdata$Xbeta
+    sf <- data.frame(time=sf$time,surv=sf$surv,Haz=-log(sf$surv))
+    Fw <- data.frame(time=tt,Fw=NA)
+    for (i in 1:nt) {
+        sfi <- sf
+        tti <- tt[i]
+        sfi$Haz <- sfi$Haz * exp(Xbeta*bet[1]*f1(tt[i]) + Xbeta*bet[2]*f2(tt[i])
+          + Xbeta*bet[3]*f3(tt[i]) + bet[4]*g1(tt[i]) + bet[5]*g2(tt[i]))
+        tmp <- evalstep(sfi$time,sfi$Haz,c(tti,tti+w),subst=0)
+        Fw$Fw[i] <- exp(-(tmp[2]-tmp[1]))
+    }
+    return(Fw)
+}
+# Mean - 2*sd
+ndata <- data.frame(Xbeta = mean(ova$Xbeta) - 2*sd(ova$Xbeta))
+Fw1 <- Fwpredict(LMsupercox2$coef, sf2, ndata, tt)
+# Mean - sd
+ndata <- data.frame(Xbeta = mean(ova$Xbeta) - sd(ova$Xbeta))
+Fw2 <- Fwpredict(LMsupercox2$coef, sf2, ndata, tt)
+# Mean
+ndata <- data.frame(Xbeta = mean(ova$Xbeta))
+Fw3 <- Fwpredict(LMsupercox2$coef, sf2, ndata, tt)
+# Mean + sd
+ndata <- data.frame(Xbeta = mean(ova$Xbeta) + sd(ova$Xbeta))
+Fw4 <- Fwpredict(LMsupercox2$coef, sf2, ndata, tt)
+# Mean - 2*sd
+ndata <- data.frame(Xbeta = mean(ova$Xbeta) + 2*sd(ova$Xbeta))
+Fw5 <- Fwpredict(LMsupercox2$coef, sf2, ndata, tt)
+
+## Plot results
+plot(Fw3$time,1-Fw3$Fw,type="s",lwd=2,xlim=c(0,5),ylim=c(0,1),
+  xlab="Time (years)",ylab="Probability of death")
+lines(Fw1$time,1-Fw1$Fw,type="s",lwd=2,lty=2)
+lines(Fw2$time,1-Fw2$Fw,type="s",lwd=2,lty=3)
+lines(Fw4$time,1-Fw4$Fw,type="s",lwd=2,lty=4)
+lines(Fw5$time,1-Fw5$Fw,type="s",lwd=2,lty=5)
+legend("topright",c("Mean+2sd","Mean+sd","Mean","Mean-sd","Mean-2sd"),
+  lwd=2,lty=c(5,4,1,3,2),bty="n")
+
+```
+

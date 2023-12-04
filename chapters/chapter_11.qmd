@@ -1,0 +1,351 @@
+---
+execute:
+  eval: false
+---
+
+# Penalized Cox models
+
+This file contains R code for the analyses in Chapter 11 of the book Dynamic Prediction in Clinical Survival Analysis (CRC Chapman & Hall) by Hans C. van Houwelingen and Hein Putter
+
+R code written by Hein Putter (H.Putter@lumc.nl for comments/questions)
+The dynpred package is available from CRAN
+
+Consistency with the book has been checked with
+- R version 2.14.0
+- survival version 2.36-10
+- dynpred version 0.1.1
+
+
+```{r}
+#| label: figbla
+
+library(dynpred)
+library(penalized)
+# The following is to install and load Biobase from Bioconductor. Biobase
+# contains standardized data structures to represent genomic data.
+# If you have not already installed Biobase, please uncomment
+# source("http://bioconductor.org/biocLite.R")
+# biocLite("Biobase")
+library(Biobase)
+
+# The van de Vijver data, not part of dynpred, should be placed in the
+# working directory
+load("VanDeVijver.Rdata")
+
+univar <- apply(t(exprs(VanDeVijver)), 2,
+  function(x) {
+    c1 <- coxph(Surv(survival.death.,event_death) ~ x,
+      data=pData(VanDeVijver));
+    return(c(c1$coef,c1$var))})
+univar <- t(univar)
+univar <- as.data.frame(univar)
+names(univar) <- c("coef","var")
+univar$z <- univar$coef/sqrt(univar$var)
+mean(abs(univar$z)>2)
+
+# Plot
+univar$info <- 1/univar$var
+plot(univar$info,univar$coef,pch=20,cex=0.5,ylim=c(-5,5),
+  xlab="Information",ylab="Regression coefficient")
+info <- seq(0.08,max(univar$info),length=500)
+lines(info,2*sqrt(1/info),type="l",lwd=2)
+lines(info,-2*sqrt(1/info),type="l",lwd=2)
+
+### Lasso
+# Note, this is time-consuming, so instead of running this part, the
+# second part, now commented out, could be run instead. 
+optlam1 <- optL1(Surv(survival.death.,event_death), t(exprs(VanDeVijver)),
+  data=pData(VanDeVijver))
+lamlass <- optlam1$lambda # optimal lambda
+lasso <- cvl(Surv(survival.death.,event_death), t(exprs(VanDeVijver)),
+  lambda1=lamlass, data=pData(VanDeVijver))
+Surv.lasso <- as.matrix(lasso$predictions)
+colnames(Surv.lasso) <- paste("time=", colnames(Surv.lasso), sep="")
+PI.lasso <-  linear.predictors(lasso$ful)
+# Write result to tab-delimited text file (uncomment next line)
+# write.table(cbind(PI.lasso, Surv.lasso), file="cvlassopred.txt", sep="\t", col.names=NA, quote=FALSE)
+
+# Uncomment this if the above part was not (completely) run.
+# Please make sure that the file "cvlassopred.txt", available from
+# the book website, is placed in the working directory
+
+# cvlasso <- read.table("cvlassopred.txt",header=TRUE,sep="\t")
+# PI.lasso <- cvlasso$PI.lasso
+# Surv.lasso <- cvlasso[,-(1:2)]
+
+### Ridge
+# Note, this is very time-consuming, so instead of running this part, the
+# second part, now commented out, could be run instead. Please make
+# sure that the file "cvlassopred.txt", available from the book website
+# is placed in the working directory
+optlam2 <- optL2(Surv(survival.death.,event_death), t(exprs(VanDeVijver)),
+  data=pData(VanDeVijver))
+lamridg <- optlam2$lambda # optimal lambda
+ridg <- cvl(Surv(survival.death.,event_death), t(exprs(VanDeVijver)),
+  lambda2=lamridg, data=pData(VanDeVijver))
+Surv.ridge <- as.matrix(ridg$predictions)
+colnames(Surv.ridge) <- paste("time=", colnames(Surv.ridge), sep="")
+PI.ridge <- linear.predictors(ridg$ful)
+# Write result to tab-delimited text file (uncomment next line)
+# write.table(data.frame(PI.ridge, Surv.ridge), file="cvridgepred.txt", sep="\t", col.names=NA, quote=FALSE)
+
+# Uncomment this if the above part was not (completely) run.
+# Please make sure that the file "cvridgepred.txt", available from
+# the book website, is placed in the working directory
+
+# cvridge <- read.table("cvridgepred.txt",header=TRUE,sep="\t")
+# PI.ridge <- cvridge$PI.ridge
+# Surv.ridge <- cvridge[,-(1:2)]
+
+###############################################################################
+###############################################################################
+### Figure 11.1: CVPL for ridge (left) and lasso (right); below is the
+### number of non-zero coefficients of the lasso
+###############################################################################
+###############################################################################
+
+### !!! NOTE, this takes a very long time to run !!!
+fit1 <- profL1(Surv(survival.death.,event_death), t(exprs(VanDeVijver)),
+  minlambda1=2, maxlambda1=28, data=pData(VanDeVijver), steps=250)
+fit2 <- profL2(Surv(survival.death.,event_death), t(exprs(VanDeVijver)),
+  minlambda2=10^1.5, maxlambda2=10^6.5, data=pData(VanDeVijver), steps=100)
+
+plot(fit1$lambda,fit1$cvl,type="l",
+  xlab="lambda", ylab="Cross-validated partial log-likelihood")
+
+nnonzero <- unlist(lapply(fit1$fullfit,function(x) length(coef(x))))
+plot(fit1$lambda,nnonzero,type="s",xlab="lambda",ylab="Number of non-zero coefficients")
+
+plot(fit2$lambda,fit2$cvl,type="l",log="x",xlim=c(min(fit2$lambda),100000),
+  xlab="lambda",ylab="Cross-validated partial log-likelihood",axes=FALSE)
+axis(1,at=c(100,1000,10000,100000),
+    labels=as.character(c(100,1000,10000,100000)))
+axis(2)
+box()
+
+###############################################################################
+###############################################################################
+### Figure 11.2: Scatterplot of the prognostic indices for ridge and lasso
+###############################################################################
+###############################################################################
+
+oldpar <- par(no.readonly=TRUE) # save graphical parameters
+layout(matrix(c(2,0,1,3),2,2,byrow=TRUE), widths=c(2,1), heights=c(1,2))
+# Scatterplot
+par(mar=c(5,5,1,1))
+plot(PI.ridge,PI.lasso,xlim=c(-2.5,2.5),ylim=c(-2.5,2.5),xlab="",ylab="")
+mtext("Ridge",side=1,line=3,cex=1.5,font=2)
+mtext("Lasso",side=2,line=3,cex=1.5,font=2)
+# Histogram of ridge
+par(mar=c(0,5,2,1))
+yhist <- hist(PI.ridge, breaks=seq(-2.5,2.5,0.5), plot=FALSE)
+top <- max(yhist$counts)
+barplot(yhist$counts, axes=TRUE, ylim=c(0, top), space=0, horiz=FALSE)
+leg <- legend("topright","",bty="n")$text
+text(leg$x,leg$y,
+  paste("Mean =",format(round(mean(PI.ridge),2),nsmall=2),"\nSD =",round(sd(PI.ridge),2)),
+  adj=c(1,1))
+par(mar=c(5,0,1,2))
+yhist <- hist(PI.lasso, breaks=seq(-2.5,2.5,0.5), plot=FALSE)
+top <- max(yhist$counts)
+barplot(yhist$counts, axes=TRUE, xlim=c(0, top), space=0, horiz=TRUE)
+leg <- legend("topright","",bty="n")$text
+text(leg$x,leg$y,
+  paste("Mean =",format(round(mean(PI.lasso),2),nsmall=2),"\nSD =",round(sd(PI.lasso),2)),
+  adj=c(1,1))
+par(oldpar) # reset graphical parameters
+
+### For future reference (Chapter 12), save the follow-up data
+### of VanDeVijver in separate data set, rename time and status
+### variables
+
+vdv <- pData(VanDeVijver)
+vdv$time <- vdv$survival.death.
+vdv$status <- vdv$event_death
+
+###############################################################################
+###############################################################################
+### Figure 11.3: Survival curves for ridge (left) and lasso (right)
+###############################################################################
+###############################################################################
+
+### Survival curves for these selected percentiles
+
+qs <- c(0.125,0.375,0.5,0.625,0.875)
+
+## Ridge
+n <- nrow(Surv.ridge)
+nc <- ncol(Surv.ridge)
+
+require(mstate)
+Surv.ridge <- t(apply(Surv.ridge,1,mstate:::NAfix))
+ord.ridge <- order(-Surv.ridge[,nc])
+Surv.ridge.ord <- Surv.ridge[ord.ridge,]
+idxs <- round(qs*(n-1)+1)
+
+# Extract time points from the Surv.ridge object
+# These are stored as character strings, strip off first character,
+# except for 0
+tt <- as.numeric(substr(dimnames(Surv.ridge)[[2]],start=6,stop=100))
+
+plot(tt,Surv.ridge.ord[idxs[1],],type="s",lwd=2,ylim=c(0,1),
+  xlab="Time (years)",ylab="Survival")
+for (i in 2:length(idxs))
+    lines(tt,Surv.ridge.ord[idxs[i],],type="s",lwd=2,lty=i)
+legend("bottomleft",paste(100*qs,"% percentile"),lwd=2,lty=1:5,bty="n")
+
+## Lasso
+n <- nrow(Surv.lasso)
+nc <- ncol(Surv.lasso)
+
+Surv.lasso <- t(apply(Surv.lasso,1,mstate:::NAfix))
+ord.lasso <- order(-Surv.lasso[,nc])
+Surv.lasso.ord <- Surv.lasso[ord.lasso,]
+idxs <- round(qs*(n-1)+1)
+
+# Extract time points from the Surv.ridge object
+tt <- as.numeric(substr(dimnames(Surv.lasso)[[2]],start=6,stop=100))
+
+plot(tt,Surv.lasso.ord[idxs[1],],type="s",lwd=2,ylim=c(0,1),
+  xlab="Time (years)",ylab="Survival")
+for (i in 2:length(idxs))
+    lines(tt,Surv.lasso.ord[idxs[i],],type="s",lwd=2,lty=i)
+legend("bottomleft",paste(100*qs,"% percentile"),lwd=2,lty=1:5,bty="n")
+
+###############################################################################
+###############################################################################
+### Figure 11.4: Cross-validated Kaplan-Meier curves for ridge (left)
+### and lasso (right)
+###############################################################################
+###############################################################################
+
+# New cross-validated PI's, append them to vdv data
+t0 <- 5
+idxt0 <- max(which(tt<=t0))
+CVPI.lasso <- log(-log(Surv.lasso[,idxt0]))
+CVPI.lasso <- CVPI.lasso - mean(CVPI.lasso)
+CVPI.ridge <- log(-log(Surv.ridge[,idxt0]))
+CVPI.ridge <- CVPI.ridge - mean(CVPI.ridge)
+vdv$group.lasso <- as.numeric(cut(CVPI.lasso,c(-Inf,quantile(CVPI.lasso)[2:4],Inf)))
+vdv$group.ridge <- as.numeric(cut(CVPI.ridge,c(-Inf,quantile(CVPI.ridge)[2:4],Inf)))
+
+## Ridge
+plot(survfit(Surv(time,status)~group.ridge,data=vdv),mark.time=FALSE,
+  lwd=2,lty=1:4,xlab="Time (years)",ylab="Survival")
+lines(survfit(Surv(time,status)~1,data=vdv),mark.time=FALSE,lwd=2,lty=1,col=8)
+legend("bottomleft",
+  c("All tumours","Percentile 0-25","Percentile 25-50","Percentile 50-75","Percentile 75-100"),
+  lwd=2,col=c(8,1,1,1,1),lty=c(1,1,2,3,4),bty="n")
+
+# Lasso
+plot(survfit(Surv(time,status)~group.lasso,data=vdv),mark.time=FALSE,
+  lwd=2,lty=1:4,xlab="Time (years)",ylab="Survival")
+lines(survfit(Surv(time,status)~1,data=vdv),mark.time=FALSE,lwd=2,lty=1,col=8)
+legend("bottomleft",
+  c("All tumours","Percentile 0-25","Percentile 25-50","Percentile 50-75","Percentile 75-100"),
+  lwd=2,col=c(8,1,1,1,1),lty=c(1,1,2,3,4),bty="n")
+
+table(vdv$group.lasso,vdv$group.ridge)
+
+c1 <- coxph(Surv(time,status)~CVPI.lasso,data=vdv,method="breslow")
+c1
+2*diff(c1$loglik)
+c2 <- coxph(Surv(time,status)~CVPI.ridge,data=vdv,method="breslow")
+c2
+2*diff(c2$loglik)
+c3 <- coxph(Surv(time,status)~CVPI.lasso+CVPI.ridge,data=vdv,method="breslow")
+c3
+2*diff(c3$loglik)
+
+###############################################################################
+###############################################################################
+### Section 11.4: Adding clinical predictors
+###############################################################################
+###############################################################################
+
+library(dynpred)
+data(nki)
+
+### Crude Cox model with the clinical covariates
+coxph(Surv(tyears,d) ~ chemotherapy + hormonaltherapy + typesurgery +
+  histolgrade + vasc.invasion + diameter + posnodes + age + mlratio,
+  data = nki, method = "breslow")
+
+### Cross-validated prognostic indices
+CVPI.clin <- rep(NA,n)
+for (i in 1:n) {
+  # leave i out
+  ci <- coxph(Surv(tyears,d) ~ chemotherapy + hormonaltherapy + typesurgery +
+    histolgrade + vasc.invasion + diameter + posnodes + age + mlratio,
+    data=nki[-i,], method="breslow")
+  sfi <- survfit(ci, newdata=nki[i,])
+  summi <- summary(sfi, times=5)
+  CVPI.clin[i] <- log(-log(summi$surv))
+}
+mean(CVPI.clin)
+CVPI.clin <- CVPI.clin-mean(CVPI.clin)
+mean(CVPI.clin)
+sd(CVPI.clin)
+
+nki$CVPI.clin <- CVPI.clin
+plot(CVPI.clin,CVPI.ridge)
+cor(CVPI.clin,CVPI.ridge)
+
+###############################################################################
+###############################################################################
+### Table 11.3: Super model Cox regression
+###############################################################################
+###############################################################################
+
+c1 <- coxph(Surv(time,status)~CVPI.clin,data=vdv,method="breslow")
+c1
+2*diff(c1$loglik)
+c2 <- coxph(Surv(time,status)~CVPI.ridge,data=vdv,method="breslow")
+c2
+2*diff(c2$loglik)
+c3 <- coxph(Surv(time,status)~CVPI.clin+CVPI.ridge,data=vdv,method="breslow")
+c3
+2*diff(c3$loglik)
+
+###############################################################################
+###############################################################################
+### Figure 11.5 Kullback-Leibler prediction error curves (left) and 
+### prediction error reduction curves (right) for the null model (Kaplan-Meier)
+### and for the three models of Table 11.3.
+###############################################################################
+###############################################################################
+
+KL0 <- pecox(Surv(time,status)~1,Surv(time,status==0)~1,data=vdv)
+KL0$Err[is.na(KL0$Err)] <- 0
+KL1 <- pecox(Surv(time,status)~CVPI.clin,Surv(time,status==0)~1,data=vdv)
+KL1$Err[is.na(KL1$Err)] <- 0
+KL2 <- pecox(Surv(time,status)~CVPI.ridge,Surv(time,status==0)~1,data=vdv)
+KL2$Err[is.na(KL2$Err)] <- 0
+KL3 <- pecox(Surv(time,status)~CVPI.clin+CVPI.ridge,Surv(time,status==0)~1,data=vdv)
+KL3$Err[is.na(KL3$Err)] <- 0
+
+### Prediction error curves
+plot(KL0$time,KL0$Err,type="s",lwd=2,lty=2,col="#646060",xlim=c(0,12.5),
+  xlab="Time (years)",ylab="Prediction error")
+lines(KL1$time,KL1$Err,type="s",lwd=2,lty=2)
+lines(KL2$time,KL2$Err,type="s",lwd=2,col="#646060")
+lines(KL3$time,KL3$Err,type="s",lwd=2)
+legend("topleft",
+  c("Null model","Clinical only","Genomic only","Clinical + genomic"),
+  lwd=2,lty=c(2,2,1,1),col=c("#646060",1,"#646060",1),bty="n")
+
+KL <- data.frame(time=KL0$time,Err0=KL0$Err,Err1=KL1$Err,Err2=KL2$Err,Err3=KL3$Err)
+KL$ErrRed1 <- (KL$Err0-KL$Err1)/KL$Err0
+KL$ErrRed2 <- (KL$Err0-KL$Err2)/KL$Err0
+KL$ErrRed3 <- (KL$Err0-KL$Err3)/KL$Err0
+
+### Prediction error reduction curves
+plot(KL$time,KL$ErrRed3,type="s",lwd=2,xlim=c(0,12.5),ylim=c(0,0.25),
+  xlab="Time (years)",ylab="Prediction error reduction")
+lines(KL$time,KL$ErrRed2,type="s",lwd=2,col="#646060")
+lines(KL$time,KL$ErrRed1,type="s",lwd=2,lty=2)
+legend("topright",c("Clinical only","Genomic only","Clinical + genomic"),
+  lwd=2,lty=c(2,1,1),col=c(1,"#646060",1),bty="n")
+
+```
+

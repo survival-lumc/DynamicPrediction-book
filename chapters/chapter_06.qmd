@@ -1,0 +1,722 @@
+---
+execute:
+  eval: false
+---
+
+# Non-proportional hazards models
+
+This file contains R code for the analyses in Chapter 6 of the book Dynamic Prediction in Clinical Survival Analysis (CRC Chapman & Hall) by Hans C. van Houwelingen and Hein Putter
+
+R code written by Hein Putter (H.Putter@lumc.nl for comments/questions)
+The dynpred package is available from CRAN
+
+Consistency with the book has been checked with
+- R version 2.14.0
+- survival version 2.36-10
+- dynpred version 0.1.1
+
+
+```{r}
+#| label: figbla
+
+###############################################################################
+###############################################################################
+### Cox model with time-varying coefficients
+###############################################################################
+###############################################################################
+
+# Ed: because of timefix
+#coxph <- function(...) survival::coxph(..., control = coxph.control(timefix = FALSE))
+
+require(dynpred)
+data(ova, package="dynpred") # to aviod confusion with ova in package coxvc
+ova$id <- 1:nrow(ova)
+
+tt <- ova$tyears[ova$d==1]
+tt <- sort(unique(tt))
+
+# Cox model with time-fixed coefficients (see also Chapter 3)
+cfixed <- coxph(Surv(tyears, d) ~ FIGO + Diam + Broders + Ascites + Karn,
+  data = ova)
+cfixed
+
+# Prepare data for Cox regression analysis with time-varying coefficients
+ova2 <- survSplit(data=ova, cut=tt, end="tyears", start="Tstart", event="d")
+
+# The same Cox model is obtained in the longer data set ova2
+cfixed <- coxph(Surv(Tstart, tyears, d) ~ FIGO + Diam + Broders + Ascites + Karn,
+  data = ova2)
+cfixed
+ova2$lnt <- log(ova2$tyears+1)
+ctime <- coxph(Surv(Tstart, tyears, d) ~
+    FIGO + Diam + Broders + Ascites + Karn +
+    FIGO:lnt + Diam:lnt + Broders:lnt + Ascites:lnt + Karn:lnt, data = ova2)
+ctime
+anova(cfixed,ctime)
+loglik.fixed <- cfixed$loglik[2]
+loglik.timefull <- ctime$loglik[2]
+
+###############################################################################
+### Figure 6.2: The time-varying prognostic indices Z(t) for each of the
+### patients in the ovarian cancer data
+###############################################################################
+
+# First center
+mm <- model.matrix(Surv(tyears, d) ~ FIGO + Diam + Broders + Ascites + Karn,
+  data = ova)[,-1]
+mm <- mm - matrix(apply(mm,2,mean),nrow(mm),ncol(mm),byrow=TRUE)
+tseq <- seq(0,6,by=0.05)
+nseq <- length(tseq)
+ov <- cbind(ova[,-(3:7)],mm)
+ov <- as.data.frame(ov)
+ov2 <- survSplit(data=ov, cut=tt, end="tyears", start="Tstart", event="d")
+ov2$lnt <- log(ov2$tyears+1)
+
+# This gives the same model as ctime above
+ctime <- coxph(Surv(Tstart, tyears, d) ~
+    FIGOIV + Diam.1cm + Diam1.2cm + Diam2.5cm + Diam.5cm +
+    Broders2 + Broders3 + Broders4 + Brodersunknown +
+    Ascitespresent + Ascitesunknown + Karn +
+    FIGOIV:lnt + Diam.1cm:lnt + Diam1.2cm:lnt + Diam2.5cm:lnt + Diam.5cm:lnt +
+    Broders2:lnt + Broders3:lnt + Broders4:lnt + Brodersunknown:lnt +
+    Ascitespresent:lnt + Ascitesunknown:lnt + Karn:lnt, data = ov2)
+ctime
+
+zfixed <- as.numeric(matrix(cfixed$coef,1,12) %*% t(mm))
+z1 <- as.numeric(matrix(ctime$coef[1:12],1,12) %*% t(mm))
+z2 <- as.numeric(matrix(ctime$coef[13:24],1,12) %*% t(mm))
+cor(zfixed,z1)
+z <- outer(z2,log(tseq+1),"*")
+z <- z + matrix(z1,nrow(z),ncol(z))
+apply(z,2,sd)
+apply(z,2,cor,y=z1)
+
+oldpar <- par(no.readonly=TRUE) # save graphical parameters
+layout(matrix(c(1,2),1,2,byrow=TRUE), widths=c(3,1))
+par(mar=c(5,5,1,1))
+plot(tseq,z[1,],type="l",ylim=c(-3,3),xlab="Time in years",ylab="Prognostic index",col=8,lwd=0.5)
+for (i in 2:nrow(z)) lines(tseq,z[i,],type="l",lwd=0.5,col=8)
+abline(h=0,lty=3)
+par(mar=c(5,0,1,1))
+yhist <- hist(zfixed, breaks=seq(-3,3,0.25), plot=FALSE)
+top <- max(yhist$counts)
+barplot(yhist$counts, axes=FALSE, xlim=c(0, top), space=0, horiz=TRUE)
+par(oldpar) # reset graphical parameters
+
+# Step-wise procedure
+# Step 1
+ctime1 <- coxph(Surv(Tstart, tyears, d) ~
+    Karn + Broders + FIGO + Ascites + Diam +
+    Karn:lnt, data = ova2)
+anova(cfixed,ctime1)
+ctime1 <- coxph(Surv(Tstart, tyears, d) ~
+    Karn + Broders + FIGO + Ascites + Diam +
+    Broders:lnt, data = ova2)
+anova(cfixed,ctime1)
+ctime1 <- coxph(Surv(Tstart, tyears, d) ~
+    Karn + Broders + FIGO + Ascites + Diam +
+    FIGO:lnt, data = ova2)
+anova(cfixed,ctime1)
+ctime1 <- coxph(Surv(Tstart, tyears, d) ~
+    Karn + Broders + FIGO + Ascites + Diam +
+    Ascites:lnt, data = ova2)
+anova(cfixed,ctime1)
+ctime1 <- coxph(Surv(Tstart, tyears, d) ~
+    Karn + Broders + FIGO + Ascites + Diam +
+    Diam:lnt, data = ova2)
+anova(cfixed,ctime1)
+# Karn selected
+ctime1 <- coxph(Surv(Tstart, tyears, d) ~
+    Karn + Broders + FIGO + Ascites + Diam +
+    Karn:lnt, data = ova2)
+loglik.time1 <- ctime1$loglik[2]
+
+# Step 2
+ctime2 <- coxph(Surv(Tstart, tyears, d) ~
+    Karn + Broders + FIGO + Ascites + Diam +
+    Karn:lnt + Broders:lnt, data = ova2)
+anova(ctime1,ctime2)
+ctime2 <- coxph(Surv(Tstart, tyears, d) ~
+    Karn + Broders + FIGO + Ascites + Diam +
+    Karn:lnt + FIGO:lnt, data = ova2)
+anova(ctime1,ctime2)
+ctime2 <- coxph(Surv(Tstart, tyears, d) ~
+    Karn + Broders + FIGO + Ascites + Diam +
+    Karn:lnt + Ascites:lnt, data = ova2)
+anova(ctime1,ctime2)
+ctime2 <- coxph(Surv(Tstart, tyears, d) ~
+    Karn + Broders + FIGO + Ascites + Diam +
+    Karn:lnt + Diam:lnt, data = ova2)
+anova(ctime1,ctime2)
+
+tseq <- seq(0,6,by=0.05)
+bseq <- matrix(NA,length(tseq),12)
+for (j in 1:12) {
+    bseq[,j] <- ctime$coef[j] + log(tseq+1)*ctime$coef[j+12]
+}
+
+###############################################################################
+### Figure 6.1: The time-varying coefficients of the model of Table 6.1
+###############################################################################
+
+nms <- c("FIGO IV","Diameter <1 cm","Diameter 1-2 cm","Diameter 2-5 cm",
+  "Diameter >5 cm","Broders 2","Broders 3","Broders 4","Broders unknown",
+  "Ascites present","Ascites unknown","Karnofsky")
+vdist <- hdist <- 0.2
+ltys <- c(1,1,2,3,4,1,2,3,4,1,2,2)
+ylim <- range(bseq)
+ylim[2] <- ylim[2]+0.2
+layout(matrix(1:4, 2, 2, byrow=TRUE),widths=c(10,10),heights=c(10,10))
+# topleft; KARN and FIGO (1 and 6)
+wh <- c(1,12)
+par(mar= c(vdist, 4, 3, hdist))
+plot(tseq,bseq[,1],type="n",ylim=ylim,xlab="",ylab="Regression coefficient",
+  axes=FALSE)
+for (j in wh) lines(tseq,bseq[,j],type="l",lwd=2,lty=ltys[j])
+abline(h=0,lwd=1,lty=5)
+legend("topright",nms[wh],lwd=2,lty=ltys[wh],bty="n")
+axis(2); axis(3); box()
+# topright; Broders (6-9)
+wh <- 6:9
+par(mar= c(vdist, hdist, 3, 4))
+plot(tseq,bseq[,1],type="n",ylim=ylim,xlab="",ylab="",axes=FALSE)
+for (j in wh) lines(tseq,bseq[,j],type="l",lwd=2,lty=ltys[j])
+abline(h=0,lwd=1,lty=5)
+legend("topright",nms[wh],lwd=2,lty=ltys[wh],bty="n")
+axis(3); axis(4); box()
+# bottomleft; Diameter (2-5)
+wh <- 2:5
+par(mar= c(5, 4, vdist, hdist))
+plot(tseq,bseq[,1],type="n",ylim=ylim,xlab="Time (years)",
+  ylab="Regression coefficient",axes=FALSE)
+for (j in wh) lines(tseq,bseq[,j],type="l",lwd=2,lty=ltys[j])
+abline(h=0,lwd=1,lty=5)
+legend("topright",nms[wh],lwd=2,lty=ltys[wh],bty="n")
+axis(1); axis(2); box()
+# bottomright; Ascites (10-11)
+wh <- 10:11
+par(mar= c(5, hdist, vdist, 4))
+plot(tseq,bseq[,1],type="n",ylim=ylim,xlab="Time (years)",ylab="",axes=FALSE)
+for (j in wh) lines(tseq,bseq[,j],type="l",lwd=2,lty=ltys[j])
+abline(h=0,lwd=1,lty=5)
+legend("topright",nms[wh],lwd=2,lty=ltys[wh],bty="n")
+axis(1); axis(4); box()
+layout(matrix(1, 1, 1))
+par(oldpar) # reset graphical parameters
+
+###############################################################################
+###############################################################################
+### Dynamic prediction with time-varying effects
+###############################################################################
+###############################################################################
+
+###############################################################################
+### Figure 6.3: Model-based failure functions (left) and dynamic fixed width
+### failure functions with w = 2 (right) for two patients with Karnofsky
+### scores 7 and 10, other covariates at mean values
+###############################################################################
+
+# Recall cfixed and ctime
+cfixed <- coxph(Surv(Tstart, tyears, d) ~
+    FIGOIV + Diam.1cm + Diam1.2cm + Diam2.5cm + Diam.5cm +
+    Broders2 + Broders3 + Broders4 + Brodersunknown +
+    Ascitespresent + Ascitesunknown + Karn, data = ov2)
+cfixed
+ctime <- coxph(Surv(Tstart, tyears, d) ~
+    FIGOIV + Diam.1cm + Diam1.2cm + Diam2.5cm + Diam.5cm +
+    Broders2 + Broders3 + Broders4 + Brodersunknown +
+    Ascitespresent + Ascitesunknown + Karn +
+    FIGOIV:lnt + Diam.1cm:lnt + Diam1.2cm:lnt + Diam2.5cm:lnt + Diam.5cm:lnt +
+    Broders2:lnt + Broders3:lnt + Broders4:lnt + Brodersunknown:lnt +
+    Ascitespresent:lnt + Ascitesunknown:lnt + Karn:lnt, data = ov2)
+ctime
+
+# Again use ov2, centered version of ova2
+# Baseline
+ndata <- data.frame(Karn = c(7,10)-mean(ova$Karn),
+  Broders2 = 0, Broders3 = 0, Broders4 = 0, Brodersunknown = 0,
+  FIGOIV = 0, Ascitespresent = 0, Ascitesunknown = 0,
+  Diam.1cm = 0, Diam1.2cm = 0, Diam2.5cm = 0, Diam.5cm = 0)
+sf <- survfit(cfixed, newdata=ndata, censor=FALSE)
+surva <- sf$surv[,1]
+survb <- sf$surv[,2]
+# Same ctime, now baseline (Karn=7 and =10 to be done later)
+ndata <- data.frame(Karn = 0,
+  Broders2 = 0, Broders3 = 0, Broders4 = 0, Brodersunknown = 0,
+  FIGOIV = 0, Ascitespresent = 0, Ascitesunknown = 0,
+  Diam.1cm = 0, Diam1.2cm = 0, Diam2.5cm = 0, Diam.5cm = 0, lnt = 0)
+sf0 <- survfit(ctime, newdata=ndata, censor=FALSE)
+tt <- sf0$time; nt <- length(tt)
+# H is now baseline centered at mean of covariates
+H0 <- data.frame(time=sf0$time, H0=-log(sf0$surv))
+H0$h0 <- diff(c(0,H0$H0))
+f2 <- function(t) log(t+1)
+mma <- mmb <- rep(0,12)
+mma[12] <- 7 - mean(ova$Karn)
+z1 <- as.numeric(mma %*% ctime$coef[1:12])
+z2 <- as.numeric(mma %*% ctime$coef[13:24])
+survtda <- exp(-cumsum(exp(z1 + z2*f2(tt)) * H0$h0))
+mmb[12] <- 10 - mean(ova$Karn)
+z1 <- as.numeric(mmb %*% ctime$coef[1:12])
+z2 <- as.numeric(mmb %*% ctime$coef[13:24])
+survtdb <- exp(-cumsum(exp(z1 + z2*f2(tt)) * H0$h0))
+
+plot(c(0,tt),1-c(1,survtda),type="s",lwd=2,ylim=c(0,1),xlab="Time in years",ylab="Death probability")
+lines(c(0,tt),1-c(1,survtdb),type="s",lwd=2,lty=2)
+lines(c(0,tt),1-c(1,surva),type="s",lwd=2,col=8)
+lines(c(0,tt),1-c(1,survb),type="s",lwd=2,col=8,lty=2)
+legend("topleft",
+  c("Karn=7, time-fixed","Karn=10, time-fixed","Karn=7, time-varying","Karn=10, time-varying"),
+  lwd=2,col=c(8,8,1,1),lty=c(1,2,1,2),bty="n")
+
+Fwa <- Fwindow(data.frame(time=tt,surv=surva),w=2,variance=FALSE)
+Fwb <- Fwindow(data.frame(time=tt,surv=survb),w=2,variance=FALSE)
+Fwtda <- Fwindow(data.frame(time=tt,surv=survtda),w=2,variance=FALSE)
+Fwtdb <- Fwindow(data.frame(time=tt,surv=survtdb),w=2,variance=FALSE)
+Fwa <- Fwa[Fwa$time<=5,]
+Fwb <- Fwb[Fwb$time<=5,]
+Fwtda <- Fwtda[Fwtda$time<=5,]
+Fwtdb <- Fwtdb[Fwtdb$time<=5,]
+plot(Fwtda$time,Fwtda$Fw,type="s",lwd=2,xlim=c(0,5),ylim=c(0,1),xlab="Time in years",ylab="Death within window probability")
+lines(Fwtdb$time,Fwtdb$Fw,type="s",lwd=2,lty=2)
+lines(Fwa$time,Fwa$Fw,type="s",lwd=2,col=8)
+lines(Fwb$time,Fwb$Fw,type="s",lwd=2,col=8,lty=2)
+legend("topright",
+  c("Karn=7, time-fixed","Karn=10, time-fixed","Karn=7, time-varying","Karn=10, time-varying"),
+  lwd=2,col=c(8,8,1,1),lty=c(1,2,1,2),bty="n")
+
+###############################################################################
+### Figure 6.4: Dynamic prediction error curves, with and without cross-validation,
+### of the time-fixed and the time-varying models
+###############################################################################
+
+### Three basic models compared: null model, time-fixed model (Ch 3), and full
+### time-varying model. Because of time-varying aspects, standard calls of pecox
+### and pewcox are not possible (a direct call to pewcox with CV=TRUE will
+### cross-validate based on rows of the data, not on individuals). So instead we
+### construct (cross-validated) survival matrices ourselves and call pew
+
+# Recall cfixed and ctime
+w <- 2
+mm <- model.matrix(Surv(tyears, d) ~ FIGO + Diam + Broders + Ascites + Karn, data = ova)[,-1]
+ov <- cbind(ova[,-(3:7)],mm)
+ov <- as.data.frame(ov)
+n <- nrow(ov)
+ov$id <- 1:n
+ov2 <- survSplit(data=ov, cut=tt, end="tyears", start="Tstart", event="d")
+ov2$lnt <- log(ov2$tyears+1)
+
+ctime
+ctime <- coxph(Surv(Tstart, tyears, d) ~
+    FIGOIV + Diam.1cm + Diam1.2cm + Diam2.5cm + Diam.5cm +
+    Broders2 + Broders3 + Broders4 + Brodersunknown +
+    Ascitespresent + Ascitesunknown + Karn +
+    FIGOIV:lnt + Diam.1cm:lnt + Diam1.2cm:lnt + Diam2.5cm:lnt + Diam.5cm:lnt +
+    Broders2:lnt + Broders3:lnt + Broders4:lnt + Brodersunknown:lnt +
+    Ascitespresent:lnt + Ascitesunknown:lnt + Karn:lnt, data = ov2)
+ctime
+# Same ctime, now baseline
+ndata <- data.frame(Karn=0,Broders2=0,Broders3=0,Broders4=0,Brodersunknown=0,
+  FIGOIV=0,Ascitespresent=0,Ascitesunknown=0,Diam.1cm=0,Diam1.2cm=0,
+  Diam2.5cm=0,Diam.5cm=0,lnt=0)
+sf0 <- survfit(ctime,newdata=ndata,censor=FALSE)
+tt <- sf0$time; nt <- length(tt)
+H0 <- data.frame(time=sf0$time,H0=-log(sf0$surv))
+H0$h0 <- diff(c(0,H0$H0))
+f2 <- function(t) log(t+1)
+surv <- matrix(NA,nt,n)
+for (i in 1:nrow(ova)) {
+  z1 <- as.numeric(mm[i,] %*% ctime$coef[1:12])
+  z2 <- as.numeric(mm[i,] %*% ctime$coef[13:24])
+  surv[,i] <- exp(-cumsum(exp(z1 + z2*f2(tt)) * H0$h0))
+}
+## Cross-validated version
+CVsurv <- matrix(NA,nt,n)
+# This is to monitor progress
+m <- floor(log10(nrow(ova))) + 1
+pre <- rep("\b", 2 * m + 1)
+for (i in 1:nrow(ova)) {
+  cat(pre, i, "/", nrow(ova), sep = ""); flush.console()
+  ov2mini <- ov2[ov2$id != i,]
+  ctmini <- coxph(Surv(Tstart, tyears, d) ~
+    FIGOIV + Diam.1cm + Diam1.2cm + Diam2.5cm + Diam.5cm +
+    Broders2 + Broders3 + Broders4 + Brodersunknown +
+    Ascitespresent + Ascitesunknown + Karn +
+    FIGOIV:lnt + Diam.1cm:lnt + Diam1.2cm:lnt + Diam2.5cm:lnt + Diam.5cm:lnt +
+    Broders2:lnt + Broders3:lnt + Broders4:lnt + Brodersunknown:lnt +
+    Ascitespresent:lnt + Ascitesunknown:lnt + Karn:lnt,
+    data = ov2mini)
+  sf0mini <- survfit(ctmini,newdata=ndata,censor=FALSE)
+  H0mini <- data.frame(time=tt,
+      H0=-log(evalstep(sf0mini$time,sf0mini$surv,tt,subst=w)))
+  H0mini$h0 <- diff(c(0,H0mini$H0))
+  z1mini <- as.numeric(mm[i,] %*% ctmini$coef[1:12])
+  z2mini <- as.numeric(mm[i,] %*% ctmini$coef[13:24])
+  CVsurv[,i] <- exp(-cumsum(exp(z1mini + z2mini*f2(tt)) * H0mini$h0))
+}
+
+n <- nrow(ova)
+tt <- sort(unique(ova$tyears[ova$d==1]))
+ttw <- c(0,tt,tt-w)
+ttw <- ttw[ttw>=0]
+ttw <- sort(unique(ttw))
+ntw <- length(ttw)
+
+# Similar matrix containing censoring probabilities
+coxcens <- coxph(Surv(tyears, 1-d) ~ 1, data=ova)
+ycens <- coxcens[["y"]]
+p <- ncol(ycens)
+tcens <- ycens[,p-1]
+dcens <- ycens[,p]
+xcens <- coxcens$linear.predictors
+coxcens <- coxph(Surv(tcens, dcens) ~ xcens)
+sfcens <- survfit(coxcens,newdata=data.frame(xcens=xcens),censor=FALSE)
+survcens <- sfcens$surv
+tcens <- sfcens$time
+
+dynpe1td.KL.ova <- pew(time = ova$tyears, status = ova$d, tsurv = tt,
+  survmat = surv, tcens = tcens, censmat = survcens, width = w, FUN = "KL",
+  tout = ttw)
+dynpe1tdCV.KL.ova <- pew(time = ova$tyears, status = ova$d, tsurv = tt,
+  survmat = CVsurv, tcens = tcens, censmat = survcens, width = w, FUN = "KL",
+  tout = ttw)
+dynpe1td.Brier.ova <- pew(time = ova$tyears, status = ova$d, tsurv = tt,
+  survmat = surv, tcens = tcens, censmat = survcens, width = w, FUN = "Brier",
+  tout = ttw)
+dynpe1tdCV.Brier.ova <- pew(time = ova$tyears, status = ova$d, tsurv = tt,
+  survmat = CVsurv, tcens = tcens, censmat = survcens, width = w, FUN = "Brier",
+  tout = ttw)
+
+dynpe1td.KL.ova$Err[is.infinite(dynpe1td.KL.ova$Err)] <- NA
+dynpe1tdCV.KL.ova$Err[is.infinite(dynpe1tdCV.KL.ova$Err)] <- NA
+dynpe1td.Brier.ova$Err[is.infinite(dynpe1td.Brier.ova$Err)] <- NA
+dynpe1tdCV.Brier.ova$Err[is.infinite(dynpe1tdCV.Brier.ova$Err)] <- NA
+# Need to fix the NA's, use NAfix() from mstate
+require(mstate)
+dynpe1td.KL.ova$Err <- mstate:::NAfix(dynpe1td.KL.ova$Err)
+dynpe1tdCV.KL.ova$Err <- mstate:::NAfix(dynpe1tdCV.KL.ova$Err)
+dynpe1td.Brier.ova$Err <- mstate:::NAfix(dynpe1td.Brier.ova$Err)
+dynpe1tdCV.Brier.ova$Err <- mstate:::NAfix(dynpe1tdCV.Brier.ova$Err)
+
+# These were also calculated in Chapter 3
+dynpe1.KL <- pewcox(Surv(tyears, d) ~ Karn + Broders + FIGO + Ascites + Diam,
+  Surv(tyears, 1-d) ~ 1, data = ova, width = 2, FUN = "KL")
+dynpe0.KL <- pewcox(Surv(tyears, d) ~ 1,
+  Surv(tyears, 1-d) ~ 1, data = ova, width = 2, FUN = "KL")
+dynpe1.Brier <- pewcox(Surv(tyears, d) ~ Karn + Broders + FIGO + Ascites + Diam,
+  Surv(tyears, 1-d) ~ 1, data = ova, width = 2, FUN = "Brier")
+dynpe0.Brier <- pewcox(Surv(tyears, d) ~ 1,
+  Surv(tyears, 1-d) ~ 1, data = ova, width = 2, FUN = "Brier")
+
+dynpe.Brier <- data.frame(time=dynpe1.Brier$time, Err0=dynpe0.Brier$Err, Err1=dynpe1.Brier$Err)
+dynpe.Brier$ErrRed <- (dynpe.Brier$Err0-dynpe.Brier$Err1)/dynpe.Brier$Err0
+dynpe.KL <- data.frame(time=dynpe1.KL$time, Err0=dynpe0.KL$Err, Err1=dynpe1.KL$Err)
+dynpe.KL$ErrRed <- (dynpe.KL$Err0-dynpe.KL$Err1)/dynpe.KL$Err0
+
+# Show until 5 years
+dynpe1td.KL.ova <- subset(dynpe1td.KL.ova,time<=5)
+dynpe1tdCV.KL.ova <- subset(dynpe1tdCV.KL.ova,time<=5)
+dynpe.KL <- subset(dynpe.KL,time<=5)
+dynpe1td.Brier.ova <- subset(dynpe1td.Brier.ova,time<=5)
+dynpe1tdCV.Brier.ova <- subset(dynpe1tdCV.Brier.ova,time<=5)
+dynpe.Brier <- subset(dynpe.Brier,time<=5)
+
+# Finally, the actual plot
+plot(dynpe1td.KL.ova$time,dynpe1td.KL.ova$Err,type="s",xlim=c(0,5),ylim=c(0,0.9),lwd=2,
+    xlab="Time in years",ylab="Prediction error",axes=FALSE)
+lines(dynpe1tdCV.KL.ova$time,dynpe1tdCV.KL.ova$Err,type="s",lwd=2,col=8)
+lines(dynpe.KL$time,dynpe.KL$Err0,type="s",lwd=2,lty=2)
+lines(dynpe.KL$time,dynpe.KL$Err1,type="s",lwd=2,lty=3)
+lines(dynpe1td.Brier.ova$time,dynpe1td.Brier.ova$Err,type="s",lwd=2)
+lines(dynpe1tdCV.Brier.ova$time,dynpe1tdCV.Brier.ova$Err,type="s",lwd=2,col=8)
+lines(dynpe.Brier$time,dynpe.Brier$Err0,type="s",lwd=2,lty=2)
+lines(dynpe.Brier$time,dynpe.Brier$Err1,type="s",lwd=2,lty=3)
+axis(1)
+axis(2,at=seq(0,0.8,by=0.1))
+box()
+text(0,0.72,"Kullback-Leibler",adj=0)
+text(0,0.275,"Breier",adj=0)
+legend("topright",c("Null model","Time-fixed","Time-varying","Time-varying (CV)"),lwd=2,lty=c(2,3,1,1),col=c(1,1,1,8),bty="n")
+
+###############################################################################
+###############################################################################
+### Models inspired by the frailty concept
+###############################################################################
+###############################################################################
+
+### Gamma frailty using coxph of the survival package (add + frailty(id) to formula)
+ova$id <- 1:nrow(ova)
+cfrailty <- coxph(Surv(tyears, d) ~ FIGO + Diam + Broders + Ascites + Karn + frailty(id), data = ova)
+cfrailty
+cfrailty <- coxph(Surv(tyears, d) ~ FIGO + Diam + Broders + Ascites + Karn + frailty.gamma(id, eps = 1e-05, method="em"), data = ova)
+cfrailty # same
+loglik.frailty <- cfrailty$history[[1]]$c.loglik
+
+### Relaxed Burr model
+X <- model.matrix(Surv(tyears, d) ~ FIGO + Diam + Broders + Ascites + Karn, data = ova)[,-1]
+X <- t(t(X) - apply(X,2,mean)) # center covariates
+dd <- data.frame(time=ova$tyears,status=ova$d)
+## Define simple function to fit relaxed Burr model
+## (returns minus the relaxed Burr partial likelihood)
+Burrpl <- function(pars,dd,X) {
+# pars contains first the beta's, then theta
+# uncomment the deb statements to monitor progress within optim()
+    ord <- order(dd$time,-dd$status)
+    dd <- dd[ord,]
+    X <- X[ord,,drop=FALSE]
+    p1 <- ncol(X)
+    beta <- pars[1:p1]
+# deb(beta, method="cat")
+    theta <- exp(pars[p1+1]) # only scalar for now
+# deb(theta, method="cat")
+    Xbeta <- as.numeric(X %*% beta)
+    # not optimized for speed
+    d1 <- dd[dd$status==1,]
+    wh <- which(dd$status==1)
+    nt <- nrow(d1)
+    res <- 0
+    for (i in 1:nt) {
+        dd$rat <- exp(Xbeta)/(1+theta*d1$time[i]*exp(Xbeta))
+        dd$rcsrat <- rev(cumsum(rev(dd$rat)))
+        res <- res + log(dd$rat[wh[i]]) - log(dd$rcsrat[wh[i]])
+    }
+# deb(res, method="cat")
+    return(-res)
+}
+bth <- c(0.4,rep(0,ncol(X)-1),0)
+opt <- optim(bth, Burrpl, method="BFGS", hessian=TRUE, dd=dd, X=X)
+# Parameters
+opt$par
+# Standard errors
+round(sqrt(diag(solve(opt$hessian))),3)
+# The variance theta and its standard error
+th <- exp(opt$par[13])
+th
+# Variance of log(theta) is diag(solve(opt$hessian))[13]
+# By delta method, SE of theta is theta*SE(log(theta))
+sqrt(diag(solve(opt$hessian))[13])*th
+
+###############################################################################
+### Cure models
+###############################################################################
+
+# Put file "semicure.s" in your working directory, then read in file
+source("semicure.s")
+# Pure cure
+sc1 <- semicure(Surv(tyears, d) ~ 1,
+  cureform = ~ Karn + Broders + FIGO + Ascites + Diam, data = ova)
+summary(sc1) # Note that semicure models probability of "uncure"
+# Cure + Cox
+sc2 <- semicure(Surv(tyears, d) ~ Karn + Broders + FIGO + Ascites + Diam,
+  cureform = ~ Karn + Broders + FIGO + Ascites + Diam, data = ova)
+summary(sc2)
+
+###############################################################################
+###############################################################################
+### Reduced rank models
+###############################################################################
+###############################################################################
+
+require(coxvc)
+# Package coxvc fits the reduced rank models; careful, it also contains
+# a data set ova, with small differences (at least in the names of the time
+# and status variables). Be sure to take the ova data from dynpred
+data(ova, package="dynpred")
+# Somehow, for the functions of coxvc to work, the names of 'time' and 'status'
+# need to be "time" and "death", and these need to be ordered
+names(ova)[1:2] <- c("time","death")
+ova <- ova[order(ova$time,-ova$death),]
+
+# Software works only with categorical covariates, so code explicitly
+mm <- model.matrix(Surv(time, death) ~ FIGO + Diam + Broders + Ascites + Karn, data=ova)[,-1]
+ova <- cbind(ova,mm)
+names(ova)[10:13] <- c("Diamless1","Diam1to2","Diam2to5","Diamgreater5")
+Ft <- cbind(rep(1, nrow(ova)), log(ova$time+1))
+# This is not in the book, but a rank=2 model with two time functions
+# (identity and log(t+1)) is of full rank, so this will retain the
+# time-varying model of Table 6.1
+fit.r21 <- coxvc(Surv(time, death) ~ FIGOIV + Broders2 + Broders3 + Broders4 + Brodersunknown +
+    Ascitespresent + Ascitesunknown + Diamless1 + Diam1to2 + Diam2to5 + Diamgreater5 + Karn, Ft, rank = 2, data=ova)
+fit.r21
+
+# Two-stage procedure
+mm <- model.matrix(Surv(Tstart, tyears, d) ~ FIGO + Diam + Broders + Ascites + Karn, data=ova2)[,-1]
+ova2$Xbeta <- as.numeric(mm %*% cfixed$coef)
+cfixed0 <- coxph(Surv(Tstart, tyears, d) ~ Xbeta, data = ova2)
+ctime3 <- coxph(Surv(Tstart, tyears, d) ~ Xbeta + Xbeta:lnt, data = ova2)
+loglik.twostate <- ctime3$loglik[2]
+anova(cfixed0,ctime3)
+
+## Rank 1 model with 1 and log(t+1)
+Ft <- cbind(rep(1, nrow(ova)), log(ova$time+1))
+fit.r11 <- coxvc(Surv(time, death) ~ Karn + Broders2 + Broders3 + Broders4 + Brodersunknown + FIGOIV +
+    Ascitespresent + Ascitesunknown + Diamless1 + Diam1to2 + Diam2to5 + Diamgreater5, Ft, rank = 1, data=ova)
+fit.r11
+
+# Rescale gamma's so that gamma_1 = 1
+gam11 <- fit.r11$gama[1]
+gam21 <- fit.r11$gama[2]
+gam21 <- gam21/gam11
+gam21 # -0.488
+gam11 <- 1
+loglik.r11 <- fit.r11$logL
+
+# Not in the book; plotcoxvc plots survival or covariate effects. I got it to work
+# only if the data are ordered, names of time and status are "time" and "death", and
+# data is attached
+attach(ova)
+plotcoxvc(fit.r11, fun="survival")
+plotcoxvc(fit.r11, fun="effects")
+
+## Three time functions, rank=1
+Ft <- cbind(rep(1, nrow(ova)), log(ova$time+1), log(ova$time+1)^2)
+fit.r12 <- coxvc(Surv(time, death) ~ Karn + Broders2 + Broders3 + Broders4 + Brodersunknown + FIGOIV +
+    Ascitespresent + Ascitesunknown + Diamless1 + Diam1to2 + Diam2to5 + Diamgreater5, Ft, rank = 1, data=ova)
+fit.r12
+loglik.r12 <- fit.r12$logL
+
+# plotcoxvc(fit.r12, fun="survival")
+# plotcoxvc(fit.r12, fun="effects")
+
+## Four time functions, rank=1
+Ft <- cbind(rep(1, nrow(ova)), log(ova$time+1), log(ova$time+1)^2, log(ova$time+1)^3)
+fit.r13 <- coxvc(Surv(time, death) ~ Karn + Broders2 + Broders3 + Broders4 + Brodersunknown + FIGOIV +
+    Ascitespresent + Ascitesunknown + Diamless1 + Diam1to2 + Diam2to5 + Diamgreater5, Ft, rank = 1, data=ova)
+fit.r13
+loglik.r13 <- fit.r13$logL
+
+# plotcoxvc(fit.r13, fun="survival")
+# plotcoxvc(fit.r13, fun="effects")
+
+###############################################################################
+### Figure 6.5: Shape of the time variation of the rank=1 model for extended
+### bases
+###############################################################################
+gam12 <- fit.r12$gama[1]
+gam22 <- fit.r12$gama[2]
+gam32 <- fit.r12$gama[3]
+gam22 <- gam22/gam12
+gam32 <- gam32/gam12
+gam12 <- 1
+gam13 <- fit.r13$gama[1]
+gam23 <- fit.r13$gama[2]
+gam33 <- fit.r13$gama[3]
+gam43 <- fit.r13$gama[4]
+gam23 <- gam23/gam13
+gam33 <- gam33/gam13
+gam43 <- gam43/gam13
+gam13 <- 1
+tseq <- seq(0,6,by=0.05)
+
+plot(tseq,gam11 + gam21*log(tseq+1),type="l",lwd=2,ylim=c(-0.25,1),xlab="Time (years)",ylab="Regression coefficient")
+lines(tseq,gam12 + gam22*log(tseq+1) + gam32*log(tseq+1)^2,type="l",lwd=2,lty=2)
+lines(tseq,gam13 + gam23*log(tseq+1) + gam33*log(tseq+1)^2 + gam43*log(tseq+1)^3,type="l",lwd=2,lty=3)
+abline(h=0,lty=5,lwd=1)
+legend("topright",c("m=2","m=3","m=4"),lwd=2,lty=1:3,bty="n")
+
+## Rank 1 model with 1 and log(t+1) for single categorical covariate
+Ft <- cbind(rep(1, nrow(ova)), log(ova$time+1))
+fit.r00 <- coxph(Surv(time, death) ~ Diam, data=ova)
+fit.r00
+fit.r11 <- coxvc(Surv(time, death) ~ Diamless1 + Diam1to2 + Diam2to5 + Diamgreater5, Ft, rank = 1, data=ova)
+fit.r11
+fit.r11$gama[2]/fit.r11$gama[1] # -0.504
+fit.r00$loglik
+fit.r11$logL
+
+### Rank=2 models
+Ft <- cbind(rep(1, nrow(ova)), log(ova$time+1))
+fit.r2 <- coxvc(Surv(time, death) ~ FIGOIV + Diamless1 + Diam1to2 + Diam2to5 + Diamgreater5 +
+    Broders2 + Broders3 + Broders4 + Brodersunknown +
+    Ascitespresent + Ascitesunknown + Karn, Ft, rank = 2, data=ova)
+loglik.r21 <- fit.r2$logL
+Ft <- cbind(rep(1, nrow(ova)), log(ova$time+1), log(ova$time+1)^2)
+fit.r2 <- coxvc(Surv(time, death) ~ FIGOIV + Diamless1 + Diam1to2 + Diam2to5 + Diamgreater5 +
+    Broders2 + Broders3 + Broders4 + Brodersunknown +
+    Ascitespresent + Ascitesunknown + Karn, Ft, rank = 2, data=ova)
+loglik.r22 <- fit.r2$logL
+Ft <- cbind(rep(1, nrow(ova)), log(ova$time+1), log(ova$time+1)^2, log(ova$time+1)^3)
+fit.r2 <- coxvc(Surv(time, death) ~ FIGOIV + Diamless1 + Diam1to2 + Diam2to5 + Diamgreater5 +
+    Broders2 + Broders3 + Broders4 + Brodersunknown +
+    Ascitespresent + Ascitesunknown + Karn, Ft, rank = 2, data=ova)
+loglik.r23 <- fit.r2$logL
+
+loglik.r23 - loglik.r13
+
+###############################################################################
+### Figure 6.6: Time-dependent regression effects for the rank = 2, m = 4 model
+###############################################################################
+
+# Automatic default picture of effects (not shown in the book)
+plotcoxvc(fit.r2, fun="effects")
+
+f1 <- function(t) 1
+f2 <- function(t) log(t+1)
+f3 <- function(t) log(t+1)^2
+f4 <- function(t) log(t+1)^3
+tseq <- seq(0,6,by=0.05)
+nseq <- length(tseq)
+Ftseq <- cbind(rep(1, nseq), f2(tseq), f3(tseq), f4(tseq))
+bseq <- Ftseq %*% t(fit.r2$theta)
+
+nms <- c("FIGO IV","Diameter <1 cm","Diameter 1-2 cm","Diameter 2-5 cm",
+  "Diameter >5 cm","Broders 2","Broders 3","Broders 4","Broders unknown",
+  "Ascites present","Ascites unknown","Karnofsky")
+vdist <- hdist <- 0.2
+ltys <- c(1,1,2,3,4,1,2,3,4,1,2,2)
+ylim <- range(bseq)
+ylim[2] <- ylim[2]+0.2
+layout(matrix(1:4, 2, 2, byrow=TRUE),widths=c(10,10),heights=c(10,10))
+# topleft; KARN and FIGO (1 and 12)
+wh <- c(1,12)
+par(mar= c(vdist, 4, 3, hdist))
+plot(tseq,bseq[,1],type="n",ylim=ylim,xlab="",ylab="Regression coefficient",axes=FALSE)
+for (j in wh) lines(tseq,bseq[,j],type="l",lwd=2,lty=ltys[j])
+abline(h=0,lty=5,lwd=1)
+legend("topright",nms[wh],lwd=2,lty=ltys[wh],bty="n")
+axis(2); axis(3); box()
+# topright; Broders (6-9)
+wh <- 6:9
+par(mar= c(vdist, hdist, 3, 4))
+plot(tseq,bseq[,1],type="n",ylim=ylim,xlab="",ylab="",axes=FALSE)
+for (j in wh) lines(tseq,bseq[,j],type="l",lwd=2,lty=ltys[j])
+abline(h=0,lty=5,lwd=1)
+legend("topright",nms[wh],lwd=2,lty=ltys[wh],bty="n")
+axis(3); axis(4); box()
+# bottomleft; Diameter (2-5)
+wh <- 2:5
+par(mar= c(5, 4, vdist, hdist))
+plot(tseq,bseq[,1],type="n",ylim=ylim,xlab="Time (years)",ylab="Regression coefficient",axes=FALSE)
+for (j in wh) lines(tseq,bseq[,j],type="l",lwd=2,lty=ltys[j])
+abline(h=0,lty=5,lwd=1)
+legend("topright",nms[wh],lwd=2,lty=ltys[wh],bty="n")
+axis(1); axis(2); box()
+# bottomright; Ascites (10-11)
+wh <- 10:11
+par(mar= c(5, hdist, vdist, 4))
+plot(tseq,bseq[,1],type="n",ylim=ylim,xlab="Time (years)",ylab="",axes=FALSE)
+for (j in wh) lines(tseq,bseq[,j],type="l",lwd=2,lty=ltys[j])
+abline(h=0,lty=5,lwd=1)
+legend("topright",nms[wh],lwd=2,lty=ltys[wh],bty="n")
+axis(1); axis(4); box()
+par(oldpar) # reset graphical parameters
+
+### A summary of all the partial log-likelihoods
+loglik.fixed # time-fixed
+- opt$value # relaxed Burr
+loglik.twostate # two-stage
+loglik.r11 # the reduced rank models
+loglik.r12
+loglik.r13
+loglik.r21 # the log-likelihood of the ful time-varying model (=loglik.timefull)
+loglik.r22
+loglik.r23
+
+## Comparisons mentioned in the text
+loglik.timefull-loglik.fixed
+loglik.time1-loglik.fixed
+loglik.r11 - loglik.twostate
+loglik.r13 - loglik.r11
+loglik.r23 - loglik.r13
+```
+

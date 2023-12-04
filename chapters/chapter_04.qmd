@@ -1,0 +1,362 @@
+---
+execute:
+  eval: false
+---
+
+# Calibration and revision of Cox models
+
+This file contains R code for the analyses in Chapter 4 of the book Dynamic Prediction in Clinical Survival Analysis (CRC Chapman & Hall) by Hans C. van Houwelingen and Hein Putter
+
+R code written by Hein Putter (H.Putter@lumc.nl for comments/questions)
+The dynpred package is available from CRAN
+
+Consistency with the book has been checked with
+- R version 2.14.0
+- survival version 2.36-10
+- dynpred version 0.1.1
+
+
+```{r}
+#| label: figbla
+
+require(dynpred)
+data(ova)
+
+###############################################################################
+###############################################################################
+### Internal calibration by shrinkage
+###############################################################################
+###############################################################################
+
+CVPL(Surv(tyears,d) ~ Karn + Broders + FIGO + Ascites + Diam,
+  data = ova) # no shrinkage
+CVPL(Surv(tyears,d) ~ Karn + Broders + FIGO + Ascites + Diam,
+  data = ova, shrink = 0)
+cseq <- seq(0,1.05,by=0.01)
+cvplseq <- rep(NA,length(cseq))
+for (i in 1:length(cseq))
+  cvplseq[i] <- CVPL(formula = Surv(tyears,d) ~ Karn + Broders + FIGO + Ascites + Diam,
+    data = ova, shrink = cseq[i], progress=FALSE)
+
+cvplf <- function(shrink)
+  CVPL(formula=Surv(tyears,d) ~ Karn + Broders + FIGO + Ascites + Diam,
+    data=ova, shrink=shrink, progress=FALSE)
+opt <- optimize(f = cvplf, lower = 0.001, upper = 2, maximum = TRUE)
+opt
+shr <- opt$maximum # save for plot
+
+### Cox regression with the cross-validated prognostic index
+## Call CVcindex to get cross-validated prognostic index
+xc <- CVcindex(Surv(tyears,d) ~ Karn + Broders + FIGO + Ascites + Diam,
+  data = ova, matrix=TRUE)
+ovaa <- ova
+ovaa$PIx <- diag(xc$matrix)
+cPIx <- coxph(Surv(tyears,d) ~ PIx, data=ovaa)
+plPIx <- rep(NA,length(cseq))
+ord <- order(ovaa$tyears,-ovaa$d)
+ovaa <- ovaa[ord,]
+for (i in 1:length(cseq)) {
+    ovaa$rat <- exp(cseq[i] * ovaa$PIx)
+    ovaa$rcsrat <- rev(cumsum(rev(ovaa$rat)))
+    ovaa1 <- ovaa[ovaa$d==1,]
+    plPIx[i] <- sum(log(ovaa1$rat) - log(ovaa1$rcsrat))
+}
+
+###############################################################################
+### Figure 4.1: Log-likelihood as function of the shrinkage factor
+###############################################################################
+
+shift <- cvplseq[1]-plPIx[1]
+plPIxshift <- plPIx + shift
+par(oma=c(1,1,0,1.5),mgp=c(2.5,1,0))
+plot(cseq,plPIxshift,type="l",lwd=2,lty=2,xlab="Shrinkage factor",ylab="Cross-validated log partial likelihood",axes=FALSE)
+mtext("Log partial likelihood",side=4,line=2)
+abline(v=shr,lty=3)
+lines(cseq,cvplseq,type="l",lwd=2)
+abline(v=cPIx$coef,lty=4)
+axis(1)
+axis(2)
+axis(4,at=seq(-1415,-1390,by=5)+shift,labels=seq(-1415,-1390,by=5))
+box()
+legend("topleft",c("CVPL","PL (cross-validated PI)"),lwd=2,lty=1:2,bty="n")
+
+# Difference between CVPL at 1 and maximized at \hat{c}
+improvement <- opt$objective -
+  CVPL(formula = Surv(tyears, d) ~ Karn + Broders + FIGO + Ascites + Diam,
+    data = ova)
+improvement
+# p-value
+(1-pchisq(2*improvement,df=1))/2
+
+###############################################################################
+###############################################################################
+### External calibration (ALL data)
+###############################################################################
+###############################################################################
+
+require(dynpred)
+data(ALL)
+
+# RFS is endpoint
+ALL$rfs <- pmin(ALL$rel,ALL$srv)
+ALL$rfs.s <- pmax(ALL$rel.s,ALL$srv.s)
+# ALL has cohort effect, first cohort is different from 2 and 3
+ALL$cohort <- as.numeric(ALL$year)
+ALL$cohort[ALL$cohort==3] <- 2
+coxph(Surv(rfs, rfs.s) ~  year, data = ALL, method="breslow")
+coxph(Surv(rfs, rfs.s) ~  cohort, data = ALL, method="breslow")
+
+###############################################################################
+### Figure 4.2: Relapse-free survival curves for each of the three ALL cohorts
+###############################################################################
+
+# Three Kaplan-Meiers
+km1 <- survfit(Surv(rfs, rfs.s) ~ 1, data = ALL[ALL$year=="1985-1989",])
+km2 <- survfit(Surv(rfs, rfs.s) ~ 1, data = ALL[ALL$year=="1990-1994",])
+km3 <- survfit(Surv(rfs, rfs.s) ~ 1, data = ALL[ALL$year=="1995-1998",])
+idx <- which(km1$time<=10*365.25)
+
+plot(c(0,km1$time[idx])/365.25,c(1,km1$surv[idx]),type="s",xlim=c(0,10),ylim=c(0,1),lwd=2,xlab="Years since transplantation",ylab="Relapse-free survival")
+idx <- which(km2$time<=10*365.25)
+lines(c(0,km2$time[idx])/365.25,c(1,km2$surv[idx]),type="s",lwd=2,lty=2)
+idx <- which(km3$time<=10*365.25)
+lines(c(0,km3$time[idx])/365.25,c(1,km3$surv[idx]),type="s",lwd=2,lty=3)
+legend("topright",c("1985-1989","1990-1994","1995-1998"),lwd=2,lty=1:3,bty="n")
+
+###############################################################################
+### Table 4.1: Prognostic index for relapse-free survival based on cohort 1
+### of the ALL data
+###############################################################################
+
+# Prognostic model on first cohort
+ALL1 <- ALL[ALL$cohort==1,]
+n1 <- nrow(ALL1)
+c1 <- coxph(Surv(rfs, rfs.s) ~  agecl + proph + match, data = ALL1, method="breslow")
+c1
+X <- model.matrix(Surv(rfs, rfs.s) ~  agecl + proph + match, data = ALL)[,-1]
+PI <- ALL$PI <- as.vector(X %*% c1$coef)
+ALL1 <- ALL[ALL$cohort==1,]
+mean(PI)
+sqrt(var(PI))
+
+# Baseline hazard, using survfit and newdata with baseline values
+# Not with basehaz() because I don't want the censored time points
+ndata <- data.frame(agecl=1, proph=1, match=1)
+ndata$agecl <- factor(ndata$agecl, levels=1:3, labels=levels(ALL1$agecl))
+ndata$proph <- factor(ndata$proph, levels=1:2, labels=levels(ALL1$proph))
+ndata$match <- factor(ndata$match, levels=1:2, labels=levels(ALL1$match))
+
+H0 <- survfit(c1, newdata=ndata, censor=FALSE)
+H0 <- data.frame(time=H0$time/365.25, hazard=-log(H0$surv)) # time in years
+
+###############################################################################
+### Figure 4.3: Estimated cumulative baseline hazard of the prediction model
+###############################################################################
+
+plot(c(0,H0$time), c(0,H0$hazard), type="s", lwd=2, xlab="Years since transplantation", ylab="Cumulative hazard")
+
+### Concordance index
+cindex(Surv(rfs, rfs.s) ~ agecl + proph + match, data=ALL1)
+CVcindex(Surv(rfs, rfs.s) ~ agecl + proph + match, data=ALL1)
+
+###############################################################################
+### Figure 4.4 Dynamic prediction errors (window width w = 0.5)
+### with cross-validation for the prognostic index of Table 4.1 in the first
+### cohort of the ALL data
+###############################################################################
+
+### Kullback-Leibler
+dynpe1.KL.ALL <- pewcox(Surv(rfs, rfs.s) ~ agecl + proph + match,
+  Surv(rfs, 1-rfs.s) ~ 1, data = ALL1, width = 183, FUN = "KL")
+dynpe0.KL.ALL <- pewcox(Surv(rfs, rfs.s) ~ 1,
+  Surv(rfs, 1-rfs.s) ~ 1, data = ALL1, width = 183, FUN = "KL")
+dynpe1.Brier.ALL <- pewcox(Surv(rfs, rfs.s) ~ agecl + proph + match,
+  Surv(rfs, 1-rfs.s) ~ 1, data = ALL1, width = 183, FUN = "Brier")
+
+### Breier
+dynpe0.Brier.ALL <- pewcox(Surv(rfs, rfs.s) ~ 1,
+  Surv(rfs, 1-rfs.s) ~ 1, data = ALL1, width = 183, FUN = "Brier")
+CVdynpe1.KL.ALL <- pewcox(Surv(rfs, rfs.s) ~ agecl + proph + match,
+  Surv(rfs, 1-rfs.s) ~ 1, data = ALL1, width = 183, FUN = "KL", CV = TRUE)
+CVdynpe1.Brier.ALL <- pewcox(Surv(rfs, rfs.s) ~ agecl + proph + match,
+  Surv(rfs, 1-rfs.s) ~ 1, data = ALL1, width = 183, FUN = "Brier", CV = TRUE)
+
+# Fix the NA's
+require(mstate)
+dynpe0.KL.ALL$Err <- mstate:::NAfix(dynpe0.KL.ALL$Err,subst=0)
+dynpe1.KL.ALL$Err <- mstate:::NAfix(dynpe1.KL.ALL$Err,subst=0)
+dynpe0.Brier.ALL$Err <- mstate:::NAfix(dynpe0.Brier.ALL$Err,subst=0)
+dynpe1.Brier.ALL$Err <- mstate:::NAfix(dynpe1.Brier.ALL$Err,subst=0)
+CVdynpe1.KL.ALL$Err[is.infinite(CVdynpe1.KL.ALL$Err)] <- NA
+CVdynpe1.KL.ALL$Err <- mstate:::NAfix(CVdynpe1.KL.ALL$Err,subst=0)
+CVdynpe1.Brier.ALL$Err[is.infinite(CVdynpe1.Brier.ALL$Err)] <- NA
+CVdynpe1.Brier.ALL$Err <- mstate:::NAfix(CVdynpe1.Brier.ALL$Err,subst=0)
+
+plot(dynpe0.KL.ALL$time/365.25,dynpe0.KL.ALL$Err,type="s",xlim=c(0,2.5),ylim=c(0,max(dynpe0.KL.ALL$Err,na.rm=TRUE)),lwd=2,lty=2,
+    xlab="Time in years",ylab="Prediction error")
+lines(dynpe1.KL.ALL$time/365.25,dynpe1.KL.ALL$Err,type="s",lwd=2)
+lines(CVdynpe1.KL.ALL$time/365.25,CVdynpe1.KL.ALL$Err,type="s",col=8)
+lines(dynpe0.Brier.ALL$time/365.25,dynpe0.Brier.ALL$Err,type="s",lwd=2,lty=2)
+lines(dynpe1.Brier.ALL$time/365.25,dynpe1.Brier.ALL$Err,type="s",lwd=2)
+lines(CVdynpe1.Brier.ALL$time/365.25,CVdynpe1.Brier.ALL$Err,type="s",col=8)
+text(1,0.31,"Kullback-Leibler",cex=0.8)
+text(1,0.09,"Breier",cex=0.8)
+legend("topright",c("Null model","Covariate model","Covariate model (CV)"),lwd=2,col=c(1,1,8),lty=c(2,1,1),bty="n")
+
+
+### Evaluated on second cohort
+ALL2 <- ALL[ALL$cohort==2,]
+n2 <- nrow(ALL2)
+
+X <- model.matrix(Surv(rfs, rfs.s) ~  agecl + proph + match, data = ALL)[,-1]
+
+# Recall H0 from the code below Table 4.1
+n0 <- nrow(H0)
+
+###############################################################################
+### Figure 4.5 Linear interpolation of the cumulative hazard illustrated
+### graphically for the first six event times
+###############################################################################
+
+plot(c(0,H0$time*365.25),c(0,H0$hazard),type="s",lwd=2,lty=4,xlim=c(0,16),ylim=c(0,0.01),xlab="Days from transplant",ylab="Cumulative hazard")
+H0$smoothed <- apply(data.frame(c(0,H0$hazard[-n0]),H0$hazard),1,mean)
+lines(c(0,H0$time*365.25),c(0,H0$smoothed),lwd=2,type="b")
+legend("topleft",c("Breslow estimate","Interpolation"),lwd=2,lty=c(4,1),pch=c(NA,1),bty="n")
+
+interstep <- function (time, stepf, newtime, to.data.frame = FALSE) 
+{
+### NOTE: only works for cumulative hazards; time starts at 0, argument time should not contain 0, only positive finite values
+    n <- length(time)
+    if (length(stepf) != n) 
+        stop("arguments 'time' and 'stepf' should have the same length")
+    if (any(!(order(time) == 1:n))) 
+        stop("argument 'time' should be ordered")
+    if (any(duplicated(time))) 
+        stop("argument 'time' should not contain duplicates")
+    if (any(is.infinite(time))) 
+        stop("(-) infinity not allowed in 'time'")
+    if (any(time<=0)) 
+        stop("0 or negative values not allowed in 'time'")
+    ### Keep last value and replace values of stepfunction by values halfway the step
+    lastval <- stepf[n]
+    stepf <- apply(data.frame(c(0,stepf[-n]),stepf),1,mean)
+
+    time <- c(0, time, Inf)
+    idx <- cut(newtime, time, right = FALSE)
+    idx <- as.numeric(idx)
+    res1 <- c(0, stepf)[idx]
+    res2 <- c(0, stepf, Inf)[idx+1]
+    time1 <- time[idx]
+    time2 <- time[idx+1]
+    rho <- 1-(newtime-time1)/(time2-time1)
+    res <- rho*res1 + (1-rho)*res2
+    dfr <- data.frame(newtime=newtime,idx=idx,res1=res1,res2=res2,time1=time1,time2=time2,rho=rho,res=res)
+
+    ### Values of newtime that are beyond (or exactly at) the last point of 'time'
+    ### should be replaced by the last value of the original stepfunction (saved in lastval)
+    wh <- which(idx==n+1)
+    res[wh] <- lastval
+    if (to.data.frame) 
+        return(data.frame(newtime = newtime, res = res))
+    else return(res)
+}
+
+ALL$H0 <- interstep(H0$time,H0$hazard,ALL$rfs/365.25)
+ALL$logH0 <- log(ALL$H0)
+ALL$H <- ALL$H0*exp(ALL$PI)
+ALL$logH <- ALL$logH0 + ALL$PI
+
+# Recall
+ALL1 <- ALL[ALL$cohort==1,]
+ALL2 <- ALL[ALL$cohort==2,]
+
+## Poisson regression
+
+# Check on ALL1 data (these should be giving 0's and 1's approximately)
+fit1 <- glm(rfs.s ~ offset(logH), family="poisson", data=ALL1)
+fit2 <- glm(rfs.s ~ PI + offset(logH0), family="poisson", data=ALL1)
+fit3 <- glm(rfs.s ~ PI + offset(logH), family="poisson", data=ALL1)
+summary(fit1)
+summary(fit2)
+summary(fit3)
+
+# Now for real on ALL2 data
+fit1 <- glm(rfs.s ~ offset(logH), family="poisson", data=ALL2)
+fit2 <- glm(rfs.s ~ PI + offset(logH0), family="poisson", data=ALL2)
+fit3 <- glm(rfs.s ~ PI + offset(logH), family="poisson", data=ALL2)
+summary(fit1)
+summary(fit2)
+summary(fit3)
+
+###############################################################################
+### Table 4.2: Calibration and revision of the prognostic index (left column)
+###############################################################################
+
+### Weibull regression with H_0^*(t_i) as outcome
+sr <- survreg(Surv(H0, rfs.s) ~ PI, ALL2, dist='weibull')
+summary(sr)
+## theta0 and theta1
+-sr$coef/sr$scale # gives (theta_0,theta_1)
+## standard errors using delta method
+sr$var # covariance matrix of (beta0,beta1,log(scale))
+der <- matrix(c(1,0,0,1,-sr$coef),2,3) # derivative
+varr <- der %*% sr$var %*% t(der)
+sqrt(diag(varr))
+
+##############################################################################
+### Figure 4.6: Calibrated relapse-free survival curves for three selected
+### patients
+###############################################################################
+
+th0 <- -sr$coef[1]/sr$scale
+th1 <- -sr$coef[2]/sr$scale
+th2 <- 1/sr$scale
+pat <- H0[,c(2,1)]
+pat$H0 <- pat$hazard
+pat$logH0 <- log(pat$H0)
+
+par(mfrow=c(1,3))
+# Baseline
+PI <- 0
+pat$logHcal <- th0 + th1*PI + th2*pat$logH0
+pat$Hcal <- exp(pat$logHcal)
+
+plot(pat$time,exp(-pat$H0*exp(PI)),type="s",lwd=2,ylim=c(0,1),xlab="Years since transplantation",ylab="Relapse-free survival")
+lines(pat$time,exp(-pat$Hcal),type="s",lwd=2,lty=2)
+title(main="Baseline")
+
+# Average
+PI <- mean(ALL$PI)
+pat$logHcal <- th0 + th1*PI + th2*pat$logH0
+pat$Hcal <- exp(pat$logHcal)
+
+plot(pat$time,exp(-pat$H0*exp(PI)),type="s",lwd=2,ylim=c(0,1),xlab="Years since transplantation",ylab="Relapse-free survival")
+lines(pat$time,exp(-pat$Hcal),type="s",lwd=2,lty=2)
+title(main="Average PI")
+
+# Largest
+PI <- max(ALL$PI)
+pat$logHcal <- th0 + th1*PI + th2*pat$logH0
+pat$Hcal <- exp(pat$logHcal)
+
+plot(pat$time,exp(-pat$H0*exp(PI)),type="s",lwd=2,ylim=c(0,1),xlab="Years since transplantation",ylab="Relapse-free survival")
+lines(pat$time,exp(-pat$Hcal),type="s",lwd=2,lty=2)
+title(main="Largest PI")
+
+###############################################################################
+###############################################################################
+### Model revision
+###############################################################################
+###############################################################################
+
+###############################################################################
+### Table 4.2: Calibration and revision of the prognostic index (right column)
+###############################################################################
+
+# Weibull regression with H_0^*(t_i) as outcome, PI + single covariates
+summary(survreg(Surv(H0, rfs.s) ~ PI + match, ALL2, dist='weibull'))
+summary(survreg(Surv(H0, rfs.s) ~ PI + proph, ALL2, dist='weibull'))
+summary(survreg(Surv(H0, rfs.s) ~ PI + agecl, ALL2, dist='weibull'))
+
+```
+

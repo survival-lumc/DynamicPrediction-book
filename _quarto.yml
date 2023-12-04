@@ -1,0 +1,68 @@
+project:
+  type: book
+  output-dir: docs
+
+book:
+  title: "Dynamic Prediction in Clinical Survival Analysis"
+  subtitle: ""
+  author: "Hans van Houwelingen & Hein Putter"
+  date: last-modified
+  sidebar:
+    logo: front-curves.png
+    title: " "
+  page-footer:
+    left: |
+      Dynamic Prediction in Clinical Survival Analysis
+    right: |
+      Built with <a href="https://quarto.org/">Quarto</a> and <a href="https://posit.co/products/open-source/rstudio/">RStudio</a>
+  cover-image: dynpred-cover.jpg
+  favicon: front-curves.png
+  repo-actions: issue
+  repo-url: https://github.com/survival-lumc/DynamicPrediction-book
+  chapters:
+  - index.qmd
+  - part: "Prognostic models for survival data using (clinical) information available at baseline, based on the Cox model"
+    chapters: 
+    - chapters/chapter_01.qmd
+    - chapters/chapter_02.qmd
+    - chapters/chapter_03.qmd
+    - chapters/chapter_04.qmd
+  - part: "Prognostic models for survival data using (clinical) information available at baseline, when the proportional hazards assumption of the Cox model is violated"
+    chapters:
+    - chapters/chapter_05.qmd
+    - chapters/chapter_06.qmd
+    - chapters/chapter_07.qmd
+  - part: "Dynamic prognostic models for survival data using time-dependent information"
+    chapters:
+    - chapters/chapter_08.qmd
+    - chapters/chapter_09.qmd
+    - chapters/chapter_10.qmd
+  - part: "Dynamic prognostic models for survival data using genomic data"
+    chapters:
+    - chapters/chapter_11.qmd
+    - chapters/chapter_12.qmd
+  - errata.qmd
+execute: 
+  warning: false
+  message: false
+  cache: true
+
+format:
+  html:
+    code-block-border-left: "#6C6C6C"
+    code-block-bg: true
+    code-fold: show
+    code-tools:
+      source: false
+      toggle: true
+      caption: "Show/hide all code"
+    code-summary: "Code show/hide"
+    fig-width: 11.69
+    fig-height: 8.27
+    number-depth: 0
+    toc-depth: 5
+    theme:
+      - cosmo
+      - msb.scss
+editor: source
+number-sections: true

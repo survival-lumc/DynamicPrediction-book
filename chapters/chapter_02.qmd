@@ -1,0 +1,240 @@
+---
+execute:
+  eval: false
+---
+
+# Cox regression model
+
+This file contains R code for the analyses in Chapter 2 of the book Dynamic Prediction in Clinical Survival Analysis (CRC Chapman & Hall) by Hans C. van Houwelingen and Hein Putter
+
+R code written by Hein Putter (H.Putter@lumc.nl for comments/questions)
+The dynpred package is available from CRAN
+
+Consistency with the book has been checked with
+- R version 2.14.0
+- survival version 2.36-10
+- dynpred version 0.1.1
+
+
+## Figure 2.1: Nelson-Aalen estimates of Data Sets 6 and 2
+
+### Data set 6
+
+```{r}
+#| label: fig2.1_data6
+
+require(dynpred)
+data(ALL)
+year <- 365.25
+
+# Define relapse-free survival as the earliest of relapse and death
+# Time to relapse (rel) and time to death (srv) are in days
+# RFS will be in years
+ALL$rfs <- pmin(ALL$rel,ALL$srv)/365.25
+ALL$rfs.s <- pmax(ALL$rel.s,ALL$srv.s)
+
+c0 <- coxph(Surv(rfs,rfs.s) ~ 1, data=ALL, method="breslow")
+sf0 <- survfit(c0)
+sf0 <- data.frame(time=c(0,sf0$time),surv=c(1,sf0$surv))
+sf0$Haz <- -log(sf0$surv)
+sf0 <- sf0[sf0$time<12,]
+plot(sf0$time,sf0$Haz,type="s",xlab="Time (years)",ylab="Cumulative hazard",lwd=2)
+```
+
+### Data set 2
+
+```{r}
+#| label: fig2.1_data2
+
+data(wbc1)
+
+c0 <- coxph(Surv(tyears, d) ~ 1, data = wbc1, method="breslow")
+sf0 <- survfit(c0)
+sf0 <- data.frame(time=c(0,sf0$time),surv=c(1,sf0$surv))
+sf0$Haz <- -log(sf0$surv)
+sf0 <- sf0[sf0$time<8,]
+plot(sf0$time,sf0$Haz,type="s",xlab="Time (years)",ylab="Cumulative hazard",lwd=2)
+```
+
+## Figure 2.2: Effect of the hazard ratio on the death risk
+
+```{r}
+#| label: fig2.2
+
+F1seq <- seq(0,1,by=0.005) # this will be 1-S1
+F2seq <- F1seq # this will be 1-S2; for HR=1 they are the same
+plot(F1seq,F2seq,type="l",lwd=2,xlab="F1",ylab="F2")
+HRs <- c(1,1.2,1.5,2,3)
+for (i in 1:length(HRs)) {
+    HR <- HRs[i]
+    F2seq <- 1 - (1-F1seq)^HR
+    lines(F1seq,F2seq,lwd=2,lty=i)
+}
+legend("topleft",paste("HR =",HRs),lwd=2,lty=1:5,bty="n")
+```
+
+## Figure 2.3: Comparing the effect of HR=1.5 (dotted versus solid) for different types of hazards
+
+```{r}
+#| label: fig2.3
+
+tt <- seq(0,10,by=0.05)
+HR <- 1.5 # Hazard ratio
+
+oldpar <- par(no.readonly=TRUE) # save old graphical parameters
+# Two plots
+layout(matrix(1:2, 1, 2),widths=c(10.25,9))
+# On the left, Weibull with shape=0.5, scale=5 (according to the
+# parametrization used in R); this is a decreasing hazard
+par(mar= c(5, 4, 4, 0.1) + 0.1)
+sig <- 2
+# The cumulative hazard is obtained using -log(survival)
+H0 <- -pweibull(tt, 1/sig, 5, lower = FALSE, log = TRUE)
+H1 <- H0 * HR
+# Survival is obtained using reverse relation exp(-cumulative hazard)
+plot(tt,exp(-H0),ylim=c(0,1),type="l",lwd=2,xlab="Time",ylab="Survival")
+lines(tt,exp(-H1),type="l",lwd=2,lty=2)
+title(main="Decreasing hazard")
+# On the right, Weibull with shape=2, scale=5 (according to the
+# parametrization used in R); this is an increasing hazard
+par(mar= c(5, 0.1, 4, 1) + 0.1)
+sig <- 0.5
+H0 <- -pweibull(tt, 1/sig, 5, lower = FALSE, log = TRUE)
+H1 <- H0 * HR
+plot(tt,exp(-H0),ylim=c(0,1),type="l",lwd=2,xlab="Time",ylab="Survival",axes=FALSE)
+lines(tt,exp(-H1),type="l",lwd=2,lty=2)
+axis(1)
+box()
+title(main="Increasing hazard")
+par(oldpar) # reset graphical parameters
+```
+
+## Example: Breast cancer II
+
+Read in data (and provide labels); both data ("bc.txt" in tab delimited txt format and syntax should be in working directory for this to work
+
+```{r}
+#| label: read_bc
+source("bc syntax.R")
+```
+
+## Table 2.1: The Cox model for the EORTC breast cancer data (Data Set 5), including all risk factors
+
+```{r}
+#| label: table2.1
+
+cfull <- coxph(Surv(survyrs,survstat) ~ surgery + tusi + nodal + age50 +
+  adjchem + tam + periop, data=bc, method="breslow")
+cfull
+
+Xbeta <- bc$Xbeta <- cfull$linear.predictors
+mean(bc$Xbeta) # is 0
+sd(bc$Xbeta)
+```
+
+## Figure 2.4: Histogram of the prognostic index PI; in dark-grey patients at risk after eight years, in light-grey patients who died or were lost-to-follow-up within eight years
+
+```{r}
+#| label: fig2.4
+
+cuts <- seq(-2,2,by=0.5)
+bc$risk8 <- 1
+bc$risk8[bc$survyrs>=8] <- 0
+tbl <- table(bc$risk8,cut(bc$Xbeta,cuts))
+barplot(tbl,space=0,ylim=c(0,1000),xlab="Prognostic index",ylab="Frequency",axes=FALSE,axisnames=FALSE)
+axis(1,at=0:8,labels=cuts)
+axis(2)
+box()
+```
+
+## Distribution of prognostic index after 8 years
+
+```{r}
+#| label: progind
+
+table(bc$risk8) # bc$risk8=0 means at risk
+# Those still at risk
+mean(bc$Xbeta[bc$risk8==0])
+sd(bc$Xbeta[bc$risk8==0])
+# Those no longer at risk
+mean(bc$Xbeta[bc$risk8==1])
+sd(bc$Xbeta[bc$risk8==1])
+```
+
+
+## Figure 2.5: Predicted survival curves for different values of the prognostic index
+
+
+```{r}
+#| label: fig2.5
+
+# Rerun a Cox model with the prognostic index
+# This should have an estimated coefficient of exactly 1 (check)
+cXbeta <- coxph(Surv(survyrs,survstat) ~ Xbeta, data=bc, method="breslow")
+
+# The survfit function from the survival library can take a "newdata"
+# argument, in which the value(s) of the covariate(s) is/are specified
+nd <- data.frame(Xbeta=-2*sd(Xbeta))
+sf <- survfit(cXbeta,newdata=nd)
+plot(sf,lwd=2,conf.int=FALSE,mark.time=FALSE,lty=2,xlab="Time in years",ylab="Survival function")
+nd <- data.frame(Xbeta=-1*sd(Xbeta))
+sf <- survfit(cXbeta,newdata=nd)
+lines(sf,lwd=2,conf.int=FALSE,mark.time=FALSE,lty=3)
+nd <- data.frame(Xbeta=0)
+sf <- survfit(cXbeta,newdata=nd)
+lines(sf,lwd=2,conf.int=FALSE,mark.time=FALSE,lty=1)
+nd <- data.frame(Xbeta=sd(Xbeta))
+sf <- survfit(cXbeta,newdata=nd)
+lines(sf,lwd=2,conf.int=FALSE,mark.time=FALSE,lty=4)
+nd <- data.frame(Xbeta=2*sd(Xbeta))
+sf <- survfit(cXbeta,newdata=nd)
+lines(sf,lwd=2,conf.int=FALSE,mark.time=FALSE,lty=5)
+
+# Add Kaplan-Meier plot
+c.km <- coxph(Surv(survyrs,survstat) ~ 1, data=bc, method="breslow")
+sf <- survfit(c.km)
+lines(sf,lwd=2,conf.int=FALSE,mark.time=FALSE,col=8)
+legend("bottomleft",c("Mean-2sd","Mean-sd","Mean","Mean+sd","Mean+2sd","Kaplan-Meier"),lwd=2,col=c(1,1,1,1,1,8),lty=c(2,3,1,4,5,1),bty="n")
+```
+
+## Figure 2.6: Dynamic prediction curves for different values of the prognostic index
+
+```{r}
+#| label: fig2.6
+
+nd <- data.frame(Xbeta=2*sd(Xbeta))
+sf <- survfit(cXbeta,newdata=nd)
+Fw <- Fwindow(sf,5)
+# Plot first 8 years only
+Fw <- Fw[Fw$time<=8,]
+plot(Fw$time,Fw$Fw,type="s",ylim=c(0,0.5),xlab="Years surviving",ylab="Probability of dying within window",lwd=2,lty=5)
+nd <- data.frame(Xbeta=sd(Xbeta))
+sf <- survfit(cXbeta,newdata=nd)
+Fw <- Fwindow(sf,5)
+Fw <- Fw[Fw$time<=8,]
+lines(Fw$time,Fw$Fw,type="s",lwd=2,lty=4)
+nd <- data.frame(Xbeta=0)
+sf <- survfit(cXbeta,newdata=nd)
+Fw <- Fwindow(sf,5)
+Fw <- Fw[Fw$time<=8,]
+lines(Fw$time,Fw$Fw,type="s",lwd=2,lty=1)
+nd <- data.frame(Xbeta=-sd(Xbeta))
+sf <- survfit(cXbeta,newdata=nd)
+Fw <- Fwindow(sf,5)
+Fw <- Fw[Fw$time<=8,]
+lines(Fw$time,Fw$Fw,type="s",lwd=2,lty=3)
+nd <- data.frame(Xbeta=-2*sd(Xbeta))
+sf <- survfit(cXbeta,newdata=nd)
+Fw <- Fwindow(sf,5)
+Fw <- Fw[Fw$time<=8,]
+lines(Fw$time,Fw$Fw,type="s",lwd=2,lty=2)
+c.km <- coxph(Surv(survyrs,survstat) ~ 1, data=bc, method="breslow")
+sf <- survfit(c.km)
+Fw <- Fwindow(sf,5)
+Fw <- Fw[Fw$time<=8,]
+lines(Fw$time,Fw$Fw,type="s",lwd=2,col=8)
+legend("topright",c("Mean-2sd","Mean-sd","Mean","Mean+sd","Mean+2sd","Kaplan-Meier"),lwd=2,col=c(1,1,1,1,1,8),lty=c(2,3,1,4,5,1),bty="n")
+```
+
+## Delayed entry (code and data is availabe upon request)
+
