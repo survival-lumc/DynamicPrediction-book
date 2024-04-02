@@ -4,14 +4,14 @@
     "href": "index.html",
     "title": "Dynamic Prediction in Clinical Survival Analysis",
     "section": "",
-    "text": "Preface\nThis is the code companion website to this book.\nA chapter with errata is also provided."
+    "text": "Preface\nThis is the code companion website to this book, replacing previously available materials hosted at http://www.msbi.nl/DynamicPrediction (now offline).\nA chapter with errata will eventually be provided."
   },
   {
     "objectID": "index.html#acknowledgements",
     "href": "index.html#acknowledgements",
     "title": "Dynamic Prediction in Clinical Survival Analysis",
     "section": "Acknowledgements",
-    "text": "Acknowledgements\nSincerely thanks to A and B"
+    "text": "Acknowledgements\n\nThe format was inspired by the nice code companion for the book Models for Multi-State Survival Data: Rates, Risks, and Pseudo-Values by Per Kragh Andersen and Henrik Ravn, see repository here."
   },
   {
     "objectID": "chapters/chapter_01.html#figure-1.1-probability-of-death-or-relapse-within-the-next-5-years-in-data-set-6-all",

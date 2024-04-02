@@ -1,9 +1,9 @@
 # Preface {.unnumbered}
 
-This is the code companion website to this book.
+This is the code companion website to this book, replacing previously available materials hosted at http://www.msbi.nl/DynamicPrediction (now offline).
 
-A chapter with errata is also provided.
+A chapter with errata will eventually be provided. 
 
 ## Acknowledgements {.unnumbered}
 
-Sincerely thanks to A and B
+- The format was inspired by the nice code companion for the book *Models for Multi-State Survival Data: Rates, Risks, and Pseudo-Values* by Per Kragh Andersen and Henrik Ravn, see repository [here](https://github.com/multi-state-book/companion).
